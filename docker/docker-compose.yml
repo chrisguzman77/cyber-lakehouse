@@ -1,0 +1,12 @@
+services:
+  spark:
+    build:
+      context: ..
+      dockerfile: docker/spark.Dockerfile
+    container_name: cyber-spark
+    volumes:
+      - ../:/opt/project
+    working_dir: /opt/project
+    environment:
+      - SPARK_LOCAL_IP=127.0.0.1
+    command: ["sleep", "infinity"]
