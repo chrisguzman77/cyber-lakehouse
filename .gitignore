@@ -4,4 +4,10 @@ models/*.pkl
 models/*.pk1
 models/*.joblib
 models/*.bin
-
+# model artifacts
+models/
+*.pkl
+*.pk1
+*.joblib
+*.pt
+*.onnx
