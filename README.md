@@ -3,7 +3,9 @@
 A local lakehouse-style data engineering + ML pipeline for detecting malicious network traffic using Apache Spark, Delta Lake, and Python.
 Built to demonstrate data engineering fundamentals, ML integration, and production-style structure in a cybersecurity context.
 
-33 Project Overview
+---
+
+## Project Overview
 
 This project implements a Bronze → Silver → Gold lakehouse architecture to ingest, clean, feature-engineer, and analyze network flow data, followed by:
 
@@ -14,6 +16,8 @@ This project implements a Bronze → Silver → Gold lakehouse architecture to i
 - Querying results using Spark SQL
 
 The system is fully containerized and runs locally using Docker.
+
+---
 
 ## Architecture
 ```
@@ -31,6 +35,7 @@ Predictions (Delta)
    ↓
 SQL Analytics
 ```
+---
 
 ## Tech Stack
 Category	| Tools
@@ -43,7 +48,10 @@ Language	| Python 3.11
 Quality	| pytest, ruff
 Dataset	| UNSW-NB15 (network intrusion data)
 
-📂 Repository Structure
+---
+
+## Repository Structure
+```
 cyber-lakehouse/
 │
 ├── src/
@@ -74,12 +82,15 @@ cyber-lakehouse/
 │   └── spark.Dockerfile
 ├── docker-compose.yml
 └── README.md
+```
 
-🚀 Running the Pipeline
+## Running the Pipeline
 1️⃣ Start Spark container
+```
 docker compose up -d
-
+```
 2️⃣ Run the lakehouse jobs
+```
 # Bronze ingestion
 docker compose exec spark python src/jobs/01_ingest_bronze.py
 
@@ -88,14 +99,15 @@ docker compose exec spark python src/jobs/02_clean_silver.py
 
 # Gold feature engineering
 docker compose exec spark python src/jobs/03_build_gold_features.py
-
+```
 3️⃣ Train the ML model
+```
 docker compose exec spark python src/jobs/04_train_model.py
+```
 
+- Trains a Random Forest classifier
 
-Trains a Random Forest classifier
-
-Saves model artifact locally (not committed to Git)
+- Saves model artifact locally (not committed to Git)
 
 4️⃣ Score predictions
 docker compose exec spark python src/jobs/05_score_predictions.py
