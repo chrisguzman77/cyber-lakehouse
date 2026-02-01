@@ -39,6 +39,9 @@ def main() -> None:
     # Standardize label columns:
     # - many UNSW files have label as 0/1 string/int
     # - some have attack_cat
+    df = df.withColumn("label_int", F.col("label").cast("int"))
+
+    # If attack_cat exists, normalize it; else create a default.
     df = df.withColumn(
         "attack_cat_norm",
         F.when(F.col("attack_cat").isNull(), F.lit("unknown"))

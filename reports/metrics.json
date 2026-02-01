@@ -1,0 +1,21 @@
+{
+  "accuracy": 0.8808470931883646,
+  "precision": 0.8649227747522542,
+  "recall": 0.8718502519798416,
+  "f1": 0.8683726975305875,
+  "n_train": 98595,
+  "n_test": 24649,
+  "features_used": [
+    "dur",
+    "spkts",
+    "dpkts",
+    "sbytes",
+    "dbytes",
+    "rate",
+    "sttl",
+    "dttl",
+    "sload",
+    "dload"
+  ],
+  "seed": 42
+}

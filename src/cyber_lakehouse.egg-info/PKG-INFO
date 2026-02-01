@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: cyber-lakehouse
+Version: 0.1.0
+Summary: Cyber Threat Lakehouse: Spark + Delta + ML (Bronze/Silver/Gold)
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pandas>=2.2
+Requires-Dist: numpy>=1.26
+Requires-Dist: scikit-learn>=1.5
+Requires-Dist: joblib>=1.4
+Dynamic: license-file
+
+# cyber-lakehouse

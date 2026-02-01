@@ -6,7 +6,13 @@ services:
     container_name: cyber-spark
     volumes:
       - ../:/opt/project
+      - ivy-cache:/root/.ivy2
     working_dir: /opt/project
     environment:
-      - SPARK_LOCAL_IP=127.0.0.1
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
+      - PYTHONPATH=/opt/project
     command: ["sleep", "infinity"]
+
+volumes:
+  ivy-cache:
