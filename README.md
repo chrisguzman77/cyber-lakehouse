@@ -84,6 +84,8 @@ cyber-lakehouse/
 └── README.md
 ```
 
+---
+
 ## Running the Pipeline
 1️⃣ Start Spark container
 ```
@@ -110,86 +112,97 @@ docker compose exec spark python src/jobs/04_train_model.py
 - Saves model artifact locally (not committed to Git)
 
 4️⃣ Score predictions
+```
 docker compose exec spark python src/jobs/05_score_predictions.py
-
+```
 
 Outputs:
 
-Prediction probabilities
+- Prediction probabilities
 
-Attack classification
+- Attack classification
 
-Model version metadata
+- Model version metadata
 
-Timestamps
+- Timestamps
 
 All written back to Delta tables.
 
-📊 Analytics (Spark SQL)
+---
+
+
+## Analytics (Spark SQL)
 
 Run analytics queries against Delta tables:
-
+```
 docker compose exec spark \
   /usr/local/lib/python3.11/site-packages/pyspark/bin/spark-sql \
   --packages io.delta:delta-spark_2.12:3.3.1 \
   --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
   -f src/sql/analytics.sql
-
+```
 
 Example insights:
 
-Attack counts by category
+- Attack counts by category
 
-Prediction distributions
+- Prediction distributions
 
-Most suspicious network flows
+- Most suspicious network flows
 
-🧪 Testing & Quality
+---
+
+
+## Testing & Quality
 
 Run locally:
-
+```
 uv run ruff check .
 uv run ruff format .
 uv run pytest
 
-
+```
 ✔ Import hygiene
 ✔ Schema validation
 ✔ Data quality rules
 
-🔒 Security & Engineering Practices
+---
 
-Immutable data layers (Bronze/Silver/Gold)
+## Security & Engineering Practices
 
-Schema validation before writes
+- Immutable data layers (Bronze/Silver/Gold)
 
-Deterministic ML pipeline
+- Schema validation before writes
 
-Reproducible containerized environment
+- Deterministic ML pipeline
 
-Clear separation of concerns (jobs vs utils)
+- Reproducible containerized environment
 
-🎯 Why This Project?
+- Clear separation of concerns (jobs vs utils)
+
+---
+
+## Why This Project?
 
 This project demonstrates:
 
-Practical data engineering workflows
+- Practical data engineering workflows
 
-Spark + Delta Lake integration
+- Spark + Delta Lake integration
 
-ML embedded in a data pipeline
+- ML embedded in a data pipeline
 
-Cybersecurity-focused analytics
+- Cybersecurity-focused analytics
 
-Production-style repo structure
+- Production-style repo structure
 
 It’s designed as a portfolio-grade project for roles in:
 
-Data Engineering
+- Data Engineering
 
-Security Engineering
+- Security Engineering
 
-ML Engineering
+- ML Engineering
 
-Cyber Operations / SOC automation
+- Cyber Operations / SOC automation
