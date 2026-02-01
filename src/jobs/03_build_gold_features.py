@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import argparse
 
-from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
-from src.utils.io import SILVER_DIR, GOLD_DIR, ensure_dirs
-
+from src.utils.io import GOLD_DIR, SILVER_DIR, ensure_dirs
 
 FEATURE_COLS = [
     "dur",
@@ -18,7 +17,7 @@ FEATURE_COLS = [
     "sttl",
     "dttl",
     "sload",
-    "dload"
+    "dload",
 ]
 
 
@@ -35,7 +34,7 @@ def main() -> None:
     args = parse_args()
     spark = SparkSession.builder.appName("03_build_gold_features").getOrCreate()
 
-    df = spark.read.format("delta").load((args.in_path))
+    df = spark.read.format("delta").load(args.in_path)
 
     # Build features table
     present = [c for c in FEATURE_COLS if c in df.columns]

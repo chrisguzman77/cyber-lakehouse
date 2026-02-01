@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import joblib
-from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
 
 from src.utils.io import GOLD_DIR, MODELS_DIR, ensure_dirs
@@ -43,7 +42,7 @@ def main() -> None:
     scored_pdf["pred_is_attack"] = pred
     scored_pdf["pred_proba"] = proba
     scored_pdf["model_version"] = args.model_version
-    scored_pdf["scored_ts"] = datetime.now(timezone.utc).isoformat()
+    scored_pdf["scored_ts"] = datetime.now(UTC).isoformat()
 
     scored = spark.createDataFrame(scored_pdf)
 

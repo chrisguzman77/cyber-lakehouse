@@ -4,12 +4,12 @@ import argparse
 import json
 
 import joblib
-import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 
 from src.utils.io import GOLD_DIR, MODELS_DIR, REPORTS_DIR, ensure_dirs
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
@@ -25,7 +25,7 @@ def main() -> None:
     args = parse_args()
 
     # Read Delta features through Spark -> Pandas, so it's conistent with the lakehouse.
-    from pyspark.sql import SparkSession # imported here so local unit tests don't need pyspark
+    from pyspark.sql import SparkSession  # imported here so local unit tests don't need pyspark
 
     spark = SparkSession.builder.appName("04_train_model").getOrCreate()
     sdf = spark.read.format("delta").load(args.features_path)
@@ -38,7 +38,7 @@ def main() -> None:
 
     if "is_attack" not in pdf.columns:
         raise RuntimeError("Expected is_attack in features table.")
-    
+
     X = pdf.drop(columns=["is_attack"])
     y = pdf["is_attack"].astype(int)
 
@@ -74,5 +74,6 @@ def main() -> None:
     print("[OK] Metrics saved to:", args.metrics_out)
     print(metrics)
 
+
 if __name__ == "__main__":
-    main() 
+    main()

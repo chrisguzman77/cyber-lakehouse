@@ -12,7 +12,7 @@ class SparkConfig:
 
 
 def build_spark_submit_args(delta_version: str = "3.3.1") -> list[str]:
-    """ 
+    """
     Build the Spark submit arguments needed to enable Delta Lake.
     We'll pass these to spark-submit in docker exec.
     """

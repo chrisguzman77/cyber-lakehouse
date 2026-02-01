@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import argparse
 
-from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
-from src.utils.io import ensure_dirs, RAW_DIR, BRONZE_DIR
+from src.utils.io import BRONZE_DIR, RAW_DIR, ensure_dirs
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,16 +32,17 @@ def main() -> None:
     # Light sanity: must have at least 1 row
     if df.rdd.isEmpty():
         raise RuntimeError("No input rows found. check data/raw/*.csv")
-    
+
     (
         df.write.format("delta")
         .mode("append")
-        .option("mergeSchema", "true") # enables schema evolution at ingest time
+        .option("mergeSchema", "true")  # enables schema evolution at ingest time
         .save(args.out_path)
     )
 
     print(f"[OK] Wrote Bronze Delta table to: {args.out_path}")
     spark.stop()
+
 
 if __name__ == "__main__":
     main()

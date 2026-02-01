@@ -1,4 +1,4 @@
-from src.utils.schema import REQUIRED_COLUMNS, QUALITY_RULES
+from src.utils.schema import QUALITY_RULES, REQUIRED_COLUMNS
 
 
 def test_required_columns_not_empty():

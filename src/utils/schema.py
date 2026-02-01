@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
 
 # Minimal column set commonly preset in UNSW-NB15 CSV variants.
 # If CSV has more columns, we keep them; this is just for key fields.
@@ -15,10 +14,10 @@ REQUIRED_COLUMNS = [
     "sttl",
     "sload",
     "dload",
-    "label", # often 0/1
+    "label",  # often 0/1
 ]
 
-LABEL_COLUMNS = ["label", "attack_cat"] # some files include attack category
+LABEL_COLUMNS = ["label", "attack_cat"]  # some files include attack category
 
 
 @dataclass(frozen=True)
