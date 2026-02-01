@@ -1,0 +1,7 @@
+
+# ML artifacts
+models/*.pkl
+models/*.pk1
+models/*.joblib
+models/*.bin
+
