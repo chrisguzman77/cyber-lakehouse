@@ -17,7 +17,8 @@ $deltaArgs = @(
   "--conf","spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog",
   "--conf","spark.sql.sources.partitionOverwriteMode=dynamic",
   "--conf","spark.sql.shuffle.partitions=8",
-  "--conf","spark.jars.ivy=/root/.ivy2"
+  "--conf","spark.jars.ivy=/root/.ivy2",
+  "--driver-memory","2g"
 )
 
 docker compose -f $compose exec -T spark `

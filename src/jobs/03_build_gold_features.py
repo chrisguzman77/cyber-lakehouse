@@ -4,21 +4,15 @@ import argparse
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
+from src.utils.features import (
+    FREQ_ENCODED_COLS,
+    RAW_FEATURE_COLS,
+    add_derived_features,
+    add_frequency_encodings,
+)
 from src.utils.io import GOLD_DIR, SILVER_DIR, ensure_dirs
-
-FEATURE_COLS = [
-    "dur",
-    "spkts",
-    "dpkts",
-    "sbytes",
-    "dbytes",
-    "rate",
-    "sttl",
-    "dttl",
-    "sload",
-    "dload",
-]
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,18 +30,23 @@ def main() -> None:
 
     df = spark.read.format("delta").load(args.in_path)
 
-    # Build features table
-    present = [c for c in FEATURE_COLS if c in df.columns]
-    features = df.select(
+    # Build features table: raw numerics + derived features + frequency encodings
+    present = [c for c in RAW_FEATURE_COLS if c in df.columns]
+    base = df.select(
         "flow_hash",
         "is_attack",
         "attack_cat_norm",
+        *FREQ_ENCODED_COLS,
         *present,
         "ingest_ts",
     )
+    features = add_frequency_encodings(add_derived_features(base))
+    # Categorical strings are represented by their *_freq encodings in gold
+    features = features.drop(*FREQ_ENCODED_COLS)
 
     (
-        features.write.format("delta")
+        features.coalesce(8)
+        .write.format("delta")
         .mode("overwrite")
         .option("overwriteSchema", "true")
         .save(args.features_out)
@@ -55,12 +54,15 @@ def main() -> None:
 
     # Build analytics aggregates
     analytics = (
-        df.groupBy("attack_cat_norm")
+        add_derived_features(df)
+        .groupBy("attack_cat_norm")
         .agg(
             F.count("*").alias("rows"),
             F.avg("dur").alias("avg_dur"),
-            F.avg("rate").alias("avg_rate"),
+            F.avg("pkts_per_sec").alias("avg_pkts_per_sec"),
+            F.avg("sbytes").alias("avg_sbytes"),
         )
+        .withColumn("pct_of_total", F.col("rows") / F.sum("rows").over(Window.partitionBy()))
         .orderBy(F.col("rows").desc())
     )
 
@@ -69,16 +71,6 @@ def main() -> None:
         .mode("overwrite")
         .option("overwriteSchema", "true")
         .save(args.analytics_out)
-    )
-
-    # Compact small files by rewriting partition count (simple compaction pattern)
-    # This is a practical demo
-    compacted = features.coalesce(4)
-    (
-        compacted.write.format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", "true")
-        .save(args.features_out)
     )
 
     print(f"[OK] Wrote Gold features to: {args.features_out}")

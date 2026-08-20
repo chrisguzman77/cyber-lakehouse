@@ -16,6 +16,7 @@ dev = [
   "pytest>=8.0",
   "pytest-pythonpath>=0.7",
   "ruff>=0.6",
+  "pyspark==3.5.3",
 ]
 
 [tool.ruff]
