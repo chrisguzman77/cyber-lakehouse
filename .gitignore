@@ -11,3 +11,12 @@ models/
 *.joblib
 *.pt
 *.onnx
+
+# data (raw CSVs + Delta tables are rebuilt by the pipeline)
+data/
+*.zip
+
+# Spark / Derby local metastore litter
+metastore_db/
+derby.log
+spark-warehouse/
