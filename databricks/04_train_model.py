@@ -8,13 +8,14 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install scikit-learn joblib
+# MAGIC %pip install scikit-learn joblib mlflow
 
 # COMMAND ----------
 
 import time
 
 import joblib
+import mlflow
 from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -72,12 +73,12 @@ models = {
 rows = []
 fitted = {}
 for name, model in models.items():
-    start = time.monotonic()
-    model.fit(X_train, y_train)
-    preds = model.predict(X_test)
-    proba = model.predict_proba(X_test)[:, 1]
-    rows.append(
-        {
+    with mlflow.start_run(run_name=name):
+        start = time.monotonic()
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        proba = model.predict_proba(X_test)[:, 1]
+        m = {
             "model": name,
             "accuracy": float(accuracy_score(y_test, preds)),
             "precision": float(precision_score(y_test, preds, zero_division=0)),
@@ -89,8 +90,12 @@ for name, model in models.items():
             "n_features": int(X.shape[1]),
             "seed": SEED,
         }
-    )
-    fitted[name] = model
+        mlflow.log_params(
+            {"model": name, "seed": SEED, "max_rows": MAX_ROWS, "n_features": X.shape[1]}
+        )
+        mlflow.log_metrics({k: m[k] for k in ("accuracy", "precision", "recall", "f1", "roc_auc")})
+        rows.append(m)
+        fitted[name] = model
 
 metrics_df = spark.createDataFrame(rows)  # noqa: F821
 metrics_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(
@@ -104,3 +109,17 @@ best = max(rows, key=lambda r: r["f1"])["model"]
 # UC Volumes are FUSE-mounted, so joblib can write to the path directly
 joblib.dump(fitted[best], MODEL_PATH)
 print("Best model:", best, "->", MODEL_PATH)
+
+# COMMAND ----------
+
+# Register the best model in the Unity Catalog model registry. The signature is
+# inferred from input_example (required for UC registration).
+mlflow.set_registry_uri("databricks-uc")
+with mlflow.start_run(run_name=f"register_{best}"):
+    mlflow.sklearn.log_model(
+        fitted[best],
+        "model",
+        input_example=X_test.head(5),
+        registered_model_name="cyber_lakehouse.gold.attack_classifier",
+    )
+print("Registered: cyber_lakehouse.gold.attack_classifier")
