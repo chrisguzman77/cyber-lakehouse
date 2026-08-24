@@ -160,7 +160,19 @@ docker compose -f docker/docker-compose.yml exec spark \
 
 ## Databricks Deployment
 
-The same pipeline runs on Databricks Free Edition: serverless compute, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`), raw CSVs in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder. Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
+The same pipeline runs on Databricks: serverless compute, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`), raw CSVs in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
+
+**Orchestration** — the five notebooks run as a 5-task Databricks Workflow with sequential dependencies (full run over the 2.54M-row dataset completes in under 5 minutes on serverless):
+
+![Databricks Workflow — 5 green tasks](docs/img/databricks-workflow.png)
+
+**Experiment tracking & model registry** — training logs each model as an MLflow run (params + accuracy/precision/recall/F1/ROC-AUC), and the best model is registered in Unity Catalog as `cyber_lakehouse.gold.attack_classifier`:
+
+![MLflow run comparison](docs/img/mlflow-compare.png)
+
+**Unity Catalog** — all layers live as governed tables/volumes under one catalog:
+
+<img src="docs/img/uc-catalog.png" alt="Unity Catalog tree" width="420">
 
 ---
 
