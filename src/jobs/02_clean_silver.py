@@ -48,8 +48,12 @@ def main() -> None:
         ).otherwise(cat),
     )
 
-    # CSV quirks: ct_ftp_cmd has blank strings; two count columns use null for 0
-    df = df.withColumn("ct_ftp_cmd", F.coalesce(F.trim(F.col("ct_ftp_cmd")).cast("long"), F.lit(0)))
+    # CSV quirks: ct_ftp_cmd has blank strings; two count columns use null for 0.
+    # try_cast, not cast: blank -> NULL -> 0 everywhere, and plain cast throws
+    # under ANSI mode (default on Databricks serverless)
+    df = df.withColumn(
+        "ct_ftp_cmd", F.coalesce(F.expr("try_cast(trim(ct_ftp_cmd) AS BIGINT)"), F.lit(0))
+    )
     for c in NULLABLE_COUNT_COLS:
         df = df.withColumn(c, F.coalesce(F.col(c), F.lit(0)))
 
