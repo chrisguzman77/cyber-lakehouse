@@ -26,6 +26,7 @@ NUMERIC_SPARK_TYPES = ("double", "float", "int", "bigint")
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--features_path", default=str(GOLD_DIR / "features"))
+    p.add_argument("--encodings_out", default=str(GOLD_DIR / "freq_encodings"))
     p.add_argument("--model_out", default=str(MODELS_DIR / "trained_model.pkl"))
     p.add_argument("--metrics_out", default=str(REPORTS_DIR / "metrics.json"))
     p.add_argument("--seed", type=int, default=42)
@@ -67,10 +68,24 @@ def main() -> None:
     args = parse_args()
 
     # Read Delta features through Spark -> Pandas, so it's consistent with the lakehouse.
-    from pyspark.sql import SparkSession  # imported here so local unit tests don't need pyspark
+    # imported here so local unit tests don't need pyspark
+    from pyspark.sql import SparkSession
+
+    from src.utils.features import apply_frequency_encodings, compute_frequency_encodings
 
     spark = SparkSession.builder.appName("04_train_model").getOrCreate()
     sdf = spark.read.format("delta").load(args.features_path)
+
+    # Freeze the frequency-encoding map over all gold rows and persist it;
+    # 05_score_predictions applies this exact table, so train and serve match.
+    (
+        compute_frequency_encodings(sdf)
+        .write.format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true")
+        .save(args.encodings_out)
+    )
+    sdf = apply_frequency_encodings(sdf, spark.read.format("delta").load(args.encodings_out))
 
     n_total = sdf.count()
     # Stratified downsample in Spark: identical fraction per class preserves the
@@ -147,6 +162,7 @@ def main() -> None:
 
     print("\n[OK] Best model:", best_name)
     print("[OK] Model saved to:", args.model_out)
+    print("[OK] Frequency encodings saved to:", args.encodings_out)
     print("[OK] Metrics saved to:", args.metrics_out)
 
 

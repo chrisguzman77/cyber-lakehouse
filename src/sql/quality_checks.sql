@@ -36,9 +36,12 @@ SELECT COUNT(*) AS negative_dur_violations
 FROM silver_traffic
 WHERE dur < 0;
 
--- 4) Duplicate flow_hash in silver (must be 0)
-SELECT COUNT(*) - COUNT(DISTINCT flow_hash) AS duplicate_flow_hash_violations
-FROM silver_traffic;
+-- 4) Duplicate flow_hash in silver and gold (must be 0)
+SELECT
+  (SELECT COUNT(*) - COUNT(DISTINCT flow_hash) FROM silver_traffic)
+    AS duplicate_flow_hash_violations,
+  (SELECT COUNT(*) - COUNT(DISTINCT flow_hash) FROM gold_features)
+    AS gold_duplicate_flow_hash_violations;
 
 -- 5) is_attack outside {0,1} in gold features (must be 0)
 SELECT COUNT(*) AS is_attack_domain_violations
@@ -63,5 +66,12 @@ SELECT
   ROUND(AVG(CASE WHEN dur IS NULL THEN 1 ELSE 0 END), 4) AS dur_null_rate,
   ROUND(AVG(CASE WHEN sbytes IS NULL THEN 1 ELSE 0 END), 4) AS sbytes_null_rate,
   ROUND(AVG(CASE WHEN pkts_per_sec IS NULL THEN 1 ELSE 0 END), 4) AS pkts_per_sec_null_rate,
-  ROUND(AVG(CASE WHEN proto_freq IS NULL THEN 1 ELSE 0 END), 4) AS proto_freq_null_rate
+  ROUND(AVG(CASE WHEN proto IS NULL THEN 1 ELSE 0 END), 4) AS proto_null_rate
 FROM gold_features;
+
+-- 9) Every gold flow scored exactly once (must be 0; incremental MERGE is insert-only)
+SELECT
+  (SELECT COUNT(*) FROM gold_features) - (SELECT COUNT(*) FROM gold_predictions)
+    AS unscored_flow_violations,
+  (SELECT COUNT(*) - COUNT(DISTINCT flow_hash) FROM gold_predictions)
+    AS duplicate_prediction_violations;

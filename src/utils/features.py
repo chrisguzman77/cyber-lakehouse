@@ -20,7 +20,10 @@ Derived features (all double):
   dur_bucket          fixed thresholds: <1ms=0, <10ms=1, <100ms=2, <1s=3, else 4
 
 Frequency encodings: for each categorical column c, c_freq = count(c) / total
-rows — the share of the dataset carrying that category value.
+rows — the share of the dataset carrying that category value. The map is
+computed once at training time (compute_frequency_encodings), persisted, and
+applied identically at training and scoring (apply_frequency_encodings), so
+incremental micro-batches can't skew it.
 """
 
 from __future__ import annotations
@@ -137,10 +140,35 @@ def add_derived_features(df: DataFrame) -> DataFrame:
     )
 
 
-def add_frequency_encodings(df: DataFrame, cols: tuple[str, ...] = FREQ_ENCODED_COLS) -> DataFrame:
-    """Add <col>_freq for each categorical column: share of rows with that value."""
+def compute_frequency_encodings(
+    df: DataFrame, cols: tuple[str, ...] = FREQ_ENCODED_COLS
+) -> DataFrame:
+    """Return the encoding map as rows of (column, value, freq), where freq is the
+    share of rows in df carrying that value. Computed once at training time and
+    persisted, so scoring a micro-batch never recomputes it from the batch."""
     total = df.count()
+    parts = [
+        df.groupBy(F.col(c).alias("value")).agg(
+            F.lit(c).alias("column"), (F.count("*") / F.lit(total)).cast("double").alias("freq")
+        )
+        for c in cols
+    ]
+    out = parts[0]
+    for p in parts[1:]:
+        out = out.unionByName(p)
+    return out.select("column", "value", "freq")
+
+
+def apply_frequency_encodings(
+    df: DataFrame, encodings: DataFrame, cols: tuple[str, ...] = FREQ_ENCODED_COLS
+) -> DataFrame:
+    """Add <col>_freq for each categorical column from a precomputed encoding map.
+    Values absent from the map (unseen at training time) encode as 0.0."""
     for c in cols:
-        freqs = df.groupBy(c).agg((F.count("*") / F.lit(total)).cast("double").alias(f"{c}_freq"))
-        df = df.join(freqs, on=c, how="left")
+        lookup = encodings.filter(F.col("column") == c).select(
+            F.col("value").alias(c), F.col("freq").alias(f"{c}_freq")
+        )
+        df = df.join(F.broadcast(lookup), on=c, how="left").withColumn(
+            f"{c}_freq", F.coalesce(F.col(f"{c}_freq"), F.lit(0.0))
+        )
     return df

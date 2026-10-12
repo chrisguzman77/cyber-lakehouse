@@ -1,7 +1,7 @@
 # Cyber Lakehouse – Network Intrusion Detection Pipeline
 
 A lakehouse-style data engineering + ML pipeline for detecting malicious network traffic using Apache Spark, Delta Lake, and Python.
-Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** through a Bronze → Silver → Gold architecture, trains and benchmarks three classifiers, and scores every flow at scale. Runs locally in Docker and deploys to Databricks (serverless + Unity Catalog).
+Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** through a Bronze → Silver → Gold architecture, trains and benchmarks three classifiers, and scores every flow at scale. Ingestion is **incremental and idempotent**: Structured Streaming / Auto Loader picks up new files only, and every downstream layer is an insert-only Delta MERGE fed by Change Data Feed, so reruns and re-delivered files never create duplicates. Runs locally in Docker and deploys to Databricks (serverless + Unity Catalog).
 
 ---
 
@@ -9,28 +9,34 @@ Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** throug
 
 This project implements a Bronze → Silver → Gold lakehouse architecture to ingest, clean, feature-engineer, and analyze network flow data, followed by:
 
+- Incremental ingestion: a replay script delivers the raw data as chunk files over time, and each run processes only what's new
 - Training and benchmarking three ML models (RandomForest, LogisticRegression, HistGradientBoosting)
-- Scoring 2M+ flows via `mapInPandas` batch inference
+- Incrementally scoring 2M+ flows via `mapInPandas` inference
 - Querying results and data-quality checks using Spark SQL
 
 The system is fully containerized (Docker) and also runs on Databricks — see [`databricks/README.md`](databricks/README.md).
+
+**Documentation:** [architecture](docs/architecture.md) · [data model](docs/data-model.md) · [operations runbook](docs/operations.md) · [design decisions (ADRs)](docs/adr/README.md)
 
 ---
 
 ## Architecture
 ```
 Raw CSVs (full UNSW-NB15, 4 files, 2,540,047 rows, headerless 49-col schema)
-   ↓
-Bronze (raw Delta, explicit StructType, ingest metadata)
-   ↓
+   ↓  replay: 250k-row chunk files released over time (atomic rename)
+Landing (data/landing/incoming/)
+   ↓  Structured Streaming file source / Auto Loader, checkpointed, availableNow
+Bronze (raw append-only Delta, explicit StructType, ingest metadata)
+   ↓  stream → per-batch dedupe → insert-only MERGE on flow_hash
 Silver (cleaned Delta: label/category normalization, CSV-quirk fixes,
-        SHA-256 flow-identity dedupe → 2,013,620 unique flows)
+        SHA-256 flow-identity dedupe → 2,013,620 unique flows; CDF on)
+   ↓  Change Data Feed inserts → insert-only MERGE
+Gold (row-wise ML feature table + analytics aggregates; CDF on)
    ↓
-Gold (54-feature ML table + analytics aggregates)
-   ↓
-ML Training (3-model benchmark, stratified 500k sample)
-   ↓
-Predictions (Delta, all 2M+ flows scored)
+ML Training (3-model benchmark, stratified 500k sample;
+             freezes the frequency-encoding map → gold/freq_encodings)
+   ↓  Change Data Feed inserts → frozen encodings → mapInPandas → insert-only MERGE
+Predictions (Delta, every flow scored exactly once per model)
    ↓
 SQL Analytics + Data Quality Checks
 ```
@@ -68,7 +74,7 @@ The script pulls the 4 full-dataset CSVs from the Kaggle mirror into `data/raw/`
 
 - **38 raw flow features** — durations, byte/packet counters, TTLs, TCP window/seq stats, jitter, inter-packet times, handshake timings, and the `ct_*` connection-context counters
 - **13 derived features** — bytes-per-packet (src/dst), src:dst byte and packet ratios, load asymmetry, TTL delta, loss rates, packets-per-second, `log1p` transforms of heavy-tailed columns, duration buckets
-- **3 frequency encodings** — `proto`, `service`, and `state` encoded as their dataset-level frequency
+- **3 frequency encodings** — `proto`, `service`, and `state` encoded as their dataset-level frequency. The map is computed once at training time and persisted (`gold/freq_encodings`); scoring applies the same table, so an incremental micro-batch can't skew it (unseen values encode as 0)
 
 ---
 
@@ -106,25 +112,36 @@ Requires Docker Desktop with ≥4GB memory for the VM.
 ```
 docker compose -f docker/docker-compose.yml up -d --build
 ```
-2️⃣ Run the lakehouse jobs (`scripts/run_job.sh` wraps `spark-submit` with the Delta Lake config)
+2️⃣ Deliver data into the landing zone
 ```
-./scripts/run_job.sh src/jobs/01_ingest_bronze.py        # 2,540,047 rows → Bronze
-./scripts/run_job.sh src/jobs/02_clean_silver.py         # dedupe → 2,013,620 rows
-./scripts/run_job.sh src/jobs/03_build_gold_features.py  # 54-feature table + analytics
+uv run python -m src.utils.replay --files 3   # next 3 chunks (250k rows each); --files 0 = everything
 ```
-(Windows: `.\run_spark_job.ps1 <job>` is the PowerShell equivalent.)
+The replay script splits the raw CSVs into chunk files and moves the next N into `data/landing/incoming/`, simulating logs arriving over time.
 
-3️⃣ Train and benchmark the models
+3️⃣ Run the incremental pipeline (`scripts/run_job.sh` wraps `spark-submit` with the Delta Lake config)
+```
+./scripts/run_job.sh src/jobs/01_ingest_bronze.py        # new landing files → Bronze (append)
+./scripts/run_job.sh src/jobs/02_clean_silver.py         # new Bronze rows → Silver (dedupe + MERGE)
+./scripts/run_job.sh src/jobs/03_build_gold_features.py  # new Silver rows → Gold features + analytics
+./scripts/run_job.sh src/jobs/05_score_predictions.py    # new Gold rows → predictions (skips if no model yet)
+```
+Each job is a checkpointed stream with an `availableNow` trigger: it processes everything new since its last run, then stops. Repeat steps 2–3 as often as you like; with everything released, Silver holds 2,013,620 unique flows. (Windows: `.\run_spark_job.ps1 <job>` is the PowerShell equivalent.)
+
+4️⃣ Train and benchmark the models, then rescore everything
 ```
 ./scripts/run_job.sh src/jobs/04_train_model.py
+./scripts/run_job.sh src/jobs/05_score_predictions.py --full_refresh
 ```
-Trains RandomForest, LogisticRegression, and HistGradientBoosting on a stratified 500k sample (`--max_rows` to change), writes the comparison to `reports/metrics.json`, and saves the best model by F1.
+Training freezes the frequency-encoding map, trains RandomForest, LogisticRegression, and HistGradientBoosting on a stratified 500k sample (`--max_rows` to change), writes the comparison to `reports/metrics.json`, and saves the best model by F1. `--full_refresh` drops the predictions table and its checkpoint so every flow is rescored with the new model (the model is loaded once per worker, so 2M+ rows never sit in one pandas frame).
 
-4️⃣ Score all flows
+To start over from scratch: `rm -rf data/{landing,bronze,silver,gold,checkpoints}`.
+
+### Idempotency check
+
 ```
-./scripts/run_job.sh src/jobs/05_score_predictions.py
+./scripts/verify_incremental.sh --reset   # wipes local pipeline data first
 ```
-Batch inference over the full gold table with `mapInPandas` (the model is loaded once per worker, so 2M+ rows never sit in one pandas frame).
+Runs the pipeline in Docker on small chunks and fails on any mismatch: a rerun with no new files changes nothing, a chunk re-delivered under a new name lands in Bronze but adds nothing to Silver/Gold, new chunks flow all the way through, and after training every Gold flow is scored exactly once (a second scoring run adds nothing).
 
 ---
 
@@ -134,9 +151,9 @@ Binary classification (attack vs. benign) on a stratified 500,000-row sample of 
 
 | Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|---|
-| **random_forest** (saved) | 0.9875 | 0.7679 | 0.9909 | 0.8652 | 0.9986 |
-| logistic_regression | 0.9853 | 0.7351 | 0.9990 | 0.8470 | 0.9968 |
-| hist_gradient_boosting | 0.9867 | 0.7542 | 0.9973 | 0.8589 | 0.9988 |
+| **random_forest** (saved) | 0.9873 | 0.7660 | 0.9922 | 0.8646 | 0.9985 |
+| logistic_regression | 0.9846 | 0.7268 | 0.9990 | 0.8414 | 0.9967 |
+| hist_gradient_boosting | 0.9867 | 0.7560 | 0.9978 | 0.8602 | 0.9989 |
 
 Full details in [`reports/metrics.json`](reports/metrics.json).
 
@@ -154,13 +171,13 @@ docker compose -f docker/docker-compose.yml exec spark \
   -f src/sql/analytics.sql
 ```
 - `src/sql/analytics.sql` — attack counts by category, prediction distribution, most suspicious flows
-- `src/sql/quality_checks.sql` — per-layer row counts plus violation queries (null labels, negative durations, duplicate flow hashes, probability bounds, attack-rate sanity band) that must all return 0
+- `src/sql/quality_checks.sql` — per-layer row counts plus violation queries (null labels, negative durations, duplicate flow hashes in Silver and Gold, probability bounds, unscored or double-scored flows, attack-rate sanity band) that must all return 0
 
 ---
 
 ## Databricks Deployment
 
-The same pipeline runs on Databricks: serverless compute, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`), raw CSVs in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
+The same pipeline runs on Databricks: serverless compute, Auto Loader over a landing Volume, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`) with Change Data Feed, stream checkpoints in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. It is split into two Workflows: `cyber-lakehouse-pipeline` (replay → bronze → silver → gold → incremental scoring, run repeatedly) and `cyber-lakehouse-train` (train → full rescore, on demand). Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
 
 **Orchestration** — the five notebooks run as a 5-task Databricks Workflow with sequential dependencies (full run over the 2.54M-row dataset completes in under 5 minutes on serverless):
 
@@ -190,7 +207,9 @@ uv run pytest          # feature-derivation tests run under a local SparkSession
 ## Security & Engineering Practices
 
 - Immutable data layers (Bronze/Silver/Gold) with explicit schema enforcement
+- Incremental, idempotent ingestion: checkpointed streams + insert-only Delta MERGE + Change Data Feed
 - SHA-256 flow-identity deduplication
+- No train/serve skew: categorical encodings frozen at training time and reused at scoring
 - SQL data-quality gates per layer
 - Deterministic ML pipeline (fixed seeds, stratified sampling, committed metrics)
 - Reproducible containerized environment; identical transformation code local + Databricks

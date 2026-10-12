@@ -4,7 +4,8 @@
 # MAGIC Trains RandomForest, LogisticRegression, and HistGradientBoosting on a
 # MAGIC stratified sample of the gold features, writes a comparison table to
 # MAGIC `cyber_lakehouse.gold.model_metrics`, and saves the best model (by F1)
-# MAGIC to a Unity Catalog Volume.
+# MAGIC to a Unity Catalog Volume. Also freezes the frequency-encoding map into
+# MAGIC `cyber_lakehouse.gold.freq_encodings`, which notebook 05 applies at scoring.
 
 # COMMAND ----------
 
@@ -12,7 +13,11 @@
 
 # COMMAND ----------
 
+import os
+import sys
 import time
+
+sys.path.append(os.path.abspath(".."))
 
 import joblib
 import mlflow
@@ -29,7 +34,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from src.utils.features import apply_frequency_encodings, compute_frequency_encodings
+
 FEATURES_TABLE = "cyber_lakehouse.gold.features"
+ENCODINGS_TABLE = "cyber_lakehouse.gold.freq_encodings"
 METRICS_TABLE = "cyber_lakehouse.gold.model_metrics"
 MODEL_PATH = "/Volumes/cyber_lakehouse/gold/artifacts/model.pkl"
 SEED = 42
@@ -38,6 +46,14 @@ MAX_ROWS = 300_000  # keep serverless compute quota-friendly
 # COMMAND ----------
 
 sdf = spark.table(FEATURES_TABLE)  # noqa: F821
+
+# Freeze the frequency-encoding map over all gold rows; notebook 05 applies
+# this exact table, so train and serve encodings match.
+compute_frequency_encodings(sdf).write.format("delta").mode("overwrite").option(
+    "overwriteSchema", "true"
+).saveAsTable(ENCODINGS_TABLE)
+sdf = apply_frequency_encodings(sdf, spark.table(ENCODINGS_TABLE))  # noqa: F821
+
 n_total = sdf.count()
 fraction = min(1.0, MAX_ROWS / n_total)
 if fraction < 1.0:
