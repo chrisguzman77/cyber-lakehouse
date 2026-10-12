@@ -1,6 +1,6 @@
 # ADR-0010: Incremental ingestion with checkpointed streams (`availableNow`)
 
-- **Status:** Accepted (verified locally; Databricks run pending)
+- **Status:** Accepted (verified locally and on Databricks, 2026-10-12)
 - **Date:** 2026-10-12
 
 ## Context
@@ -37,4 +37,8 @@ hides whether the pipeline handles late, repeated, or re-delivered data.
 - Bronze is raw and append-only: a file re-delivered under a new name is
   ingested again; deduplication is silver's job
   ([ADR-0011](0011-insert-only-merge-first-seen-wins.md)).
-- Rename atomicity on FUSE-mounted UC Volumes is unverified.
+- Rename atomicity on FUSE-mounted UC Volumes isn't guaranteed by the
+  platform; in practice Auto Loader never read a partial chunk (row counts
+  were exact across all Databricks runs).
+- On Databricks, 4 runs delivered all 11 chunks in 2–3 minutes each; a fifth
+  run with no new files left every count unchanged.

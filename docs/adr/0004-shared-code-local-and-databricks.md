@@ -29,7 +29,9 @@ Workflows). Copy-pasted logic in two places drifts.
   arguments on the shared helpers.
 - On serverless, `foreachBatch` functions run in a separate Python process that
   may not see the Git folder; notebooks therefore register the shared modules
-  with `cloudpickle.register_pickle_by_value` (unverified on Databricks at the
-  time of writing).
+  with `cloudpickle.register_pickle_by_value`. Verified working on serverless
+  (2026-10-12); a traceback from that run showed the worker also resolving
+  `src.utils` from the Git folder path, so the registration is a safeguard
+  rather than strictly required on the current runtime.
 - Some platform differences remain in notebook code (e.g. `_metadata.file_path`
   instead of `input_file_name()`, which serverless restricts).

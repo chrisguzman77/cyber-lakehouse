@@ -179,9 +179,19 @@ docker compose -f docker/docker-compose.yml exec spark \
 
 The same pipeline runs on Databricks: serverless compute, Auto Loader over a landing Volume, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`) with Change Data Feed, stream checkpoints in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. It is split into two Workflows: `cyber-lakehouse-pipeline` (replay → bronze → silver → gold → incremental scoring, run repeatedly) and `cyber-lakehouse-train` (train → full rescore, on demand). Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
 
-**Orchestration** — the five notebooks run as a 5-task Databricks Workflow with sequential dependencies (full run over the 2.54M-row dataset completes in under 5 minutes on serverless):
+**Incremental pipeline Workflow** — each run of `cyber-lakehouse-pipeline` delivers the next 3 chunks (~750k rows) and processes only those through every layer, in 2–3 minutes on serverless. The last run below had nothing new to deliver and left every table's row count unchanged:
 
-![Databricks Workflow — 5 green tasks](docs/img/databricks-workflow.png)
+![cyber-lakehouse-pipeline runs — replay, bronze, silver, gold, score all green](docs/img/databricks-pipeline-runs.png)
+
+**Training Workflow** — `cyber-lakehouse-train` retrains, freezes the encodings, and rescores every flow (`full_refresh`) in ~4.5 minutes:
+
+![cyber-lakehouse-train run — train_model then score_predictions](docs/img/databricks-train-runs.png)
+
+**Incremental writes** — silver's Delta history shows one insert-only `MERGE` per pipeline run instead of a full overwrite:
+
+![DESCRIBE HISTORY of silver.traffic_clean — CREATE TABLE then MERGE per run](docs/img/silver-merge-history.png)
+
+Verified on Databricks (2026-10-12): bronze 2,540,047; silver = gold = predictions = 2,013,620; 0 duplicate `flow_hash` values — identical to the local run.
 
 **Experiment tracking & model registry** — training logs each model as an MLflow run (params + accuracy/precision/recall/F1/ROC-AUC), and the best model is registered in Unity Catalog as `cyber_lakehouse.gold.attack_classifier`:
 

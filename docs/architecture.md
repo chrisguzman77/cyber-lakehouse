@@ -114,10 +114,11 @@ processes everything new since the previous run and then stops. Job 04
   - `cyber-lakehouse-pipeline`: 00 replay → 01 → 02 → 03 → 05 (run repeatedly)
   - `cyber-lakehouse-train`: 04 → 05 with `full_refresh=true` (on demand)
 
-> **Status:** the batch version of the Databricks deployment ran successfully
-> on 2026-08-24 (5-task Workflow, 4m35s). The incremental notebooks were
-> written on 2026-10-12 and verified locally; the Databricks run of the
-> incremental version is pending.
+> **Status:** verified on Databricks Free Edition on 2026-10-12. Four
+> incremental pipeline runs delivered all 11 chunks (2–3 min each); a fifth
+> run with nothing new left every row count unchanged. Final counts match the
+> local run exactly: bronze 2,540,047; silver = gold = predictions =
+> 2,013,620; 0 duplicate keys. The training Workflow ran in 4m23s.
 
 ## 6. Technology stack
 
@@ -214,8 +215,12 @@ The development machine has 8 GB RAM. Stream readers cap micro-batches at
   scoring covers every flow.
 - **Encodings are not embedded in the registered MLflow model**; the
   `freq_encodings` table must travel with it (a pyfunc wrapper would fix this).
-- **Incremental Databricks run not yet verified** (see §5).
-- **Replay rename atomicity on UC Volumes** (FUSE) is unverified.
+- **Replay rename atomicity on UC Volumes** (FUSE) is not guaranteed by the
+  platform; in practice Auto Loader never read a partial chunk (counts were
+  exact across all runs).
+- **A model left over from an earlier deployment bypasses the "no model yet"
+  check** in scoring, which then fails because `gold.freq_encodings` doesn't
+  exist yet. Run the training Workflow first after upgrading.
 - `run_spark_job.ps1` does not forward extra arguments (e.g. `--full_refresh`).
 
 ## 10. Roadmap

@@ -133,6 +133,7 @@ Setup, Workflow definitions, and the verification checklist live in
 |---|---|---|
 | Job exits with code **137** | Container killed by the kernel OOM killer (Docker VM ~3.8 GB) | Keep `--driver-memory 2g` (6g is OOM-killed); lower `--max_bytes_per_trigger` or `--score_partitions`. Streams resume from their checkpoint, so just rerun. |
 | Scoring prints `[SKIP] No model` | No model trained yet | Run job 04, then 05 with `--full_refresh`. |
+| Scoring fails with `TABLE_OR_VIEW_NOT_FOUND ... freq_encodings` | A model from an older deployment exists, so scoring ran before the new training created the encodings table | Run training (job 04 / `cyber-lakehouse-train`) first; it writes the encodings and rescores everything. |
 | Spark tests all skipped on the host | No Java runtime | Install Java 17, or run tests in the container. |
 | `CAST_INVALID_INPUT` on Databricks | ANSI mode rejects blank-string casts | Use `try_cast` for dirty string columns ([ADR-0008](adr/0008-try-cast-under-ansi-mode.md)). |
 | Stream fails after a code change mentioning checkpoint/offsets | Checkpoint incompatible with the new query | Reset that layer and its checkpoint (and downstream layers). |

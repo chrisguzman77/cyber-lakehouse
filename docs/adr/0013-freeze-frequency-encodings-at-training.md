@@ -1,6 +1,6 @@
 # ADR-0013: Freeze frequency encodings at training time
 
-- **Status:** Accepted (verified locally; Databricks run pending)
+- **Status:** Accepted (verified locally and on Databricks, 2026-10-12)
 - **Date:** 2026-10-12
 
 ## Context

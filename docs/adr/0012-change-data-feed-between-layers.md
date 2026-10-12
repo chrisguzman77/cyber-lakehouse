@@ -1,6 +1,6 @@
 # ADR-0012: Change Data Feed to propagate increments between layers
 
-- **Status:** Accepted (verified locally; Databricks run pending)
+- **Status:** Accepted (verified locally and on Databricks, 2026-10-12)
 - **Date:** 2026-10-12
 
 ## Context

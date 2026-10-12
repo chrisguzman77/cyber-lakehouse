@@ -1,6 +1,6 @@
 # ADR-0014: Separate pipeline and training Workflows
 
-- **Status:** Accepted (Databricks Workflows to be recreated)
+- **Status:** Accepted (both Workflows running on Databricks, 2026-10-12)
 - **Date:** 2026-10-12
 
 ## Context

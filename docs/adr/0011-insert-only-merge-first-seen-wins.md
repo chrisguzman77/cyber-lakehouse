@@ -1,6 +1,6 @@
 # ADR-0011: Insert-only MERGE on `flow_hash` — first seen wins
 
-- **Status:** Accepted (verified locally; Databricks run pending)
+- **Status:** Accepted (verified locally and on Databricks, 2026-10-12)
 - **Date:** 2026-10-12
 
 ## Context
