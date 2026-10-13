@@ -35,7 +35,11 @@ responses. Silver already carries the normalized family label
 
 ## Consequences
 
-- RandomForest selected: test macro-F1 **0.585**, accuracy 0.980.
+- RandomForest selected locally: test macro-F1 **0.585**, accuracy 0.980. On
+  Databricks (300k-row sample) HistGradientBoosting won on validation instead
+  (0.615 vs 0.571; test macro-F1 0.648). With so few rare-family examples,
+  the winner depends on the sample, which is why selection uses validation
+  rather than a fixed choice.
   Accuracy is dominated by `normal`; macro-F1 and the per-class table are the
   honest summary.
 - Strong on `generic` (F1 0.94), `reconnaissance` (0.88), `exploits` (0.82);

@@ -122,6 +122,10 @@ processes everything new since the previous run and then stops. Job 04
 > run with nothing new left every row count unchanged. Final counts match the
 > local run exactly: bronze 2,540,047; silver = gold = predictions =
 > 2,013,620; 0 duplicate keys. The training Workflow ran in 4m23s.
+> The evaluation upgrade (ADR-0017/0018) was then trained on Databricks on
+> 2026-10-13: HistGradientBoosting alert model at threshold 0.880 (test
+> precision 0.824, recall 0.953), HistGradientBoosting family model (test
+> macro-F1 0.648); all 2,013,620 flows rescored with `pred_attack_cat`.
 
 ## 6. Technology stack
 
