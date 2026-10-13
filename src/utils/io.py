@@ -6,6 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DATA_DIR = REPO_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
+LANDING_DIR = DATA_DIR / "landing"
 BRONZE_DIR = DATA_DIR / "bronze"
 SILVER_DIR = DATA_DIR / "silver"
 GOLD_DIR = DATA_DIR / "gold"
@@ -18,6 +19,7 @@ REPORTS_DIR = REPO_ROOT / "reports"
 def ensure_dirs() -> None:
     for p in [
         RAW_DIR,
+        LANDING_DIR,
         BRONZE_DIR,
         SILVER_DIR,
         GOLD_DIR,

@@ -9,7 +9,8 @@ from src.utils.features import (  # noqa: E402
     FREQ_ENCODED_COLS,
     RAW_FEATURE_COLS,
     add_derived_features,
-    add_frequency_encodings,
+    apply_frequency_encodings,
+    compute_frequency_encodings,
 )
 
 ROW_COLS = [
@@ -71,13 +72,31 @@ def test_all_derived_columns_added(spark):
         assert c in out.columns
 
 
-def test_frequency_encodings(spark):
+def test_compute_frequency_encodings(spark):
     df = spark.createDataFrame(
-        [("tcp",), ("tcp",), ("udp",), ("arp",)],
-        ["proto"],
+        [("tcp", "http"), ("tcp", "-"), ("udp", "-"), ("arp", "-")],
+        ["proto", "service"],
     )
-    out = add_frequency_encodings(df, cols=("proto",))
-    freqs = {r.proto: r.proto_freq for r in out.collect()}
-    assert freqs["tcp"] == pytest.approx(0.5)
-    assert freqs["udp"] == pytest.approx(0.25)
-    assert freqs["arp"] == pytest.approx(0.25)
+    enc = compute_frequency_encodings(df, cols=("proto", "service"))
+    freqs = {(r.column, r.value): r.freq for r in enc.collect()}
+    assert freqs[("proto", "tcp")] == pytest.approx(0.5)
+    assert freqs[("proto", "udp")] == pytest.approx(0.25)
+    assert freqs[("service", "-")] == pytest.approx(0.75)
+    assert freqs[("service", "http")] == pytest.approx(0.25)
+
+
+def test_apply_frequency_encodings_uses_frozen_map(spark):
+    # The map comes from "training" data; a new batch must not recompute it.
+    train = spark.createDataFrame([("tcp",), ("tcp",), ("udp",), ("arp",)], ["proto"])
+    enc = compute_frequency_encodings(train, cols=("proto",))
+
+    batch = spark.createDataFrame(
+        [("tcp", 1), ("tcp", 2), ("tcp", 3), ("icmp", 4)], ["proto", "id"]
+    )
+    out = apply_frequency_encodings(batch, enc, cols=("proto",))
+    freqs = {r.id: r.proto_freq for r in out.collect()}
+
+    assert freqs[1] == pytest.approx(0.5)  # training share, not the batch's 0.75
+    assert freqs[4] == 0.0  # unseen value
+    assert out.count() == 4
+    assert "proto" in out.columns
