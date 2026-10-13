@@ -16,6 +16,17 @@ MODELS_DIR = REPO_ROOT / "models"
 REPORTS_DIR = REPO_ROOT / "reports"
 
 
+def model_artifacts(model_path: str | Path) -> dict[str, Path]:
+    """Training outputs live together: the binary model at model_path, plus the
+    attack-family model and model_meta.json (threshold etc.) beside it."""
+    binary = Path(model_path)
+    return {
+        "binary": binary,
+        "family": binary.with_name("attack_family_model.pkl"),
+        "meta": binary.with_name("model_meta.json"),
+    }
+
+
 def ensure_dirs() -> None:
     for p in [
         RAW_DIR,

@@ -61,14 +61,21 @@ rows.
 3. Run `cyber-lakehouse-pipeline` again (as often as you like): new chunks flow
    through every layer and only the new flows get scored.
 
+**Upgrading an existing deployment to new model artifacts** (e.g. the
+attack-family model and tuned threshold): pull the Git folder, then run
+`cyber-lakehouse-train` once. Until then the pipeline's scoring task skips,
+because `attack_family_model.pkl` and `model_meta.json` don't exist yet; the
+train Workflow's `full_refresh` recreates `gold.predictions` with the new
+`pred_attack_cat` column. No other tables need resetting.
+
 | Notebook | Writes |
 |---|---|
 | `00_replay_landing` | next chunk files in `/Volumes/cyber_lakehouse/bronze/landing/incoming/` |
 | `01_ingest_bronze` | `cyber_lakehouse.bronze.traffic` (append, Auto Loader) |
 | `02_clean_silver` | `cyber_lakehouse.silver.traffic_clean` (insert-only MERGE, CDF on) |
 | `03_build_gold_features` | `gold.features` (insert-only MERGE, CDF on), `gold.analytics` |
-| `04_train_model` | `gold.model_metrics` (3 models), `gold.freq_encodings`, model artifact in the Volume, UC model |
-| `05_score_predictions` | `gold.predictions` (insert-only MERGE) |
+| `04_train_model` | `gold.freq_encodings`, `gold.model_metrics` (3 binary models, tuned thresholds), `gold.family_model_metrics` (3 family models), `model.pkl` + `attack_family_model.pkl` + `model_meta.json` in the artifacts Volume, UC models `attack_classifier` and `attack_family_classifier` |
+| `05_score_predictions` | `gold.predictions` (insert-only MERGE): `pred_is_attack` at the tuned threshold, `pred_proba`, `pred_attack_cat` |
 
 ## Verification checklist
 
@@ -78,7 +85,8 @@ rows.
 - [ ] After all chunks are released: `SELECT COUNT(*) FROM cyber_lakehouse.bronze.traffic` ≈ 2,540,047
       and `silver.traffic_clean` = 2,013,620
 - [ ] `SELECT DISTINCT attack_cat_norm FROM cyber_lakehouse.silver.traffic_clean` → 10 categories
-- [ ] `SELECT COUNT(*) FROM cyber_lakehouse.gold.model_metrics` → 3 rows
+- [ ] `SELECT COUNT(*) FROM cyber_lakehouse.gold.model_metrics` → 3 rows; `gold.family_model_metrics` → 3 rows; exactly one `selected = true` in each
+- [ ] `SELECT COUNT(*) FROM cyber_lakehouse.gold.predictions WHERE pred_attack_cat IS NULL` → 0
 - [ ] `gold.predictions` row count equals `gold.features` row count
 
 ## Resetting

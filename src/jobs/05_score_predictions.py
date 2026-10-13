@@ -1,25 +1,29 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-import joblib
 import pandas as pd
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from src.utils.features import apply_frequency_encodings
 from src.utils.incremental import cdf_inserts, run_insert_stream
-from src.utils.io import CHECKPOINTS_DIR, GOLD_DIR, MODELS_DIR, ensure_dirs
+from src.utils.io import CHECKPOINTS_DIR, GOLD_DIR, MODELS_DIR, ensure_dirs, model_artifacts
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--features_path", default=str(GOLD_DIR / "features"))
     p.add_argument("--encodings_path", default=str(GOLD_DIR / "freq_encodings"))
-    p.add_argument("--model_path", default=str(MODELS_DIR / "trained_model.pkl"))
+    p.add_argument(
+        "--model_path",
+        default=str(MODELS_DIR / "trained_model.pkl"),
+        help="Binary model; the family model and model_meta.json are read from beside it",
+    )
     p.add_argument("--pred_out", default=str(GOLD_DIR / "predictions"))
     p.add_argument("--checkpoint", default=str(CHECKPOINTS_DIR / "predictions"))
     p.add_argument("--model_version", default="v1")
@@ -27,8 +31,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--score_partitions",
         type=int,
-        default=4,
-        help="Concurrent Python scoring workers (~230MB each with the RF model loaded)",
+        default=2,
+        help="Concurrent Python scoring workers (each loads both models, ~380MB)",
     )
     p.add_argument(
         "--full_refresh",
@@ -42,9 +46,12 @@ def main() -> None:
     ensure_dirs()
     args = parse_args()
 
-    # Scoring needs both training outputs; a model left over from an older
-    # deployment without its frozen encodings must not be used.
-    if not (Path(args.model_path).exists() and Path(args.encodings_path, "_delta_log").exists()):
+    # Scoring needs every training output; artifacts left over from an older
+    # deployment (e.g. a model without its frozen encodings) must not be used.
+    paths = model_artifacts(args.model_path)
+    if not (
+        all(p.exists() for p in paths.values()) and Path(args.encodings_path, "_delta_log").exists()
+    ):
         print("[SKIP] No trained model + frequency encodings yet; run 04_train_model first.")
         return
 
@@ -54,25 +61,30 @@ def main() -> None:
 
     spark = SparkSession.builder.appName("05_score_predictions").getOrCreate()
 
-    # Column order must match training exactly; the model records it.
-    feature_cols = list(joblib.load(args.model_path).feature_names_in_)
+    # Column order and alert threshold must match training exactly.
+    meta = json.loads(paths["meta"].read_text())
+    feature_cols = meta["features"]
+    threshold = meta["threshold"]
     encodings = spark.read.format("delta").load(args.encodings_path)
-    model_path = args.model_path
+    model_path, family_path = str(paths["binary"]), str(paths["family"])
 
     # Score partition-by-partition so a large micro-batch never has to fit in
-    # one pandas frame; the model is loaded once per worker.
+    # one pandas frame; the models are loaded once per worker.
     def score(batches: Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
         import joblib
 
-        # Safe pickle load: the artifact is produced by our own 04_train_model job
+        # Safe pickle loads: the artifacts are produced by our own 04_train_model job
         model = joblib.load(model_path)
+        family = joblib.load(family_path)
         for pdf in batches:
-            proba = model.predict_proba(pdf[feature_cols])[:, 1]
+            X = pdf[feature_cols]
+            proba = model.predict_proba(X)[:, 1]
             yield pd.DataFrame(
                 {
                     "flow_hash": pdf["flow_hash"],
-                    "pred_is_attack": (proba >= 0.5).astype("int32"),
+                    "pred_is_attack": (proba >= threshold).astype("int32"),
                     "pred_proba": proba,
+                    "pred_attack_cat": family.predict(X),
                 }
             )
 
@@ -80,10 +92,14 @@ def main() -> None:
         return (
             apply_frequency_encodings(batch_df, encodings)
             .select("flow_hash", *feature_cols)
-            # Caps Python workers alive at once: one per core (8) on top of the
-            # 2g driver gets OOM-killed in a ~4GB Docker VM.
+            # Caps Python workers alive at once: one per core (8), each holding
+            # both models, on top of the 2g driver gets OOM-killed in a ~4GB VM.
             .coalesce(args.score_partitions)
-            .mapInPandas(score, schema="flow_hash string, pred_is_attack int, pred_proba double")
+            .mapInPandas(
+                score,
+                schema="flow_hash string, pred_is_attack int, pred_proba double, "
+                "pred_attack_cat string",
+            )
             .withColumn("model_version", F.lit(args.model_version))
             .withColumn("scored_ts", F.current_timestamp())
         )

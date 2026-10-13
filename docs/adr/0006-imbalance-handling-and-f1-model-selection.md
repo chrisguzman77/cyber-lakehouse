@@ -1,6 +1,6 @@
 # ADR-0006: Class weighting and F1-based model selection
 
-- **Status:** Accepted
+- **Status:** Accepted (model-selection rule superseded by [ADR-0017](0017-validation-tuned-alert-threshold.md))
 - **Date:** 2026-08-19
 
 ## Context

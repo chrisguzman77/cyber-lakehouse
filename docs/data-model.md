@@ -14,7 +14,8 @@ in the `cyber_lakehouse` catalog.
 | Gold features | `data/gold/features` | `gold.features` | 03 | insert-only MERGE | `flow_hash` | yes |
 | Gold analytics | `data/gold/analytics` | `gold.analytics` | 03 | batch overwrite | `attack_cat_norm` | no |
 | Frequency encodings | `data/gold/freq_encodings` | `gold.freq_encodings` | 04 | batch overwrite | (`column`, `value`) | no |
-| Model metrics | `reports/metrics.json` | `gold.model_metrics` | 04 | overwrite | `model` | no |
+| Model metrics | `reports/metrics.json` | `gold.model_metrics`, `gold.family_model_metrics` | 04 | overwrite | `model` | no |
+| Model artifacts | `models/` | Volume `gold.artifacts` | 04 | overwrite | — | — |
 | Predictions | `data/gold/predictions` | `gold.predictions` | 05 | insert-only MERGE | `flow_hash` | yes |
 
 Stream checkpoints: `data/checkpoints/{bronze,silver,gold_features,predictions}`
@@ -131,16 +132,37 @@ Values absent from the table (unseen at training time) encode as 0.0
 | Column | Meaning |
 |---|---|
 | `flow_hash` | key, joins to gold features / silver |
-| `pred_is_attack` | `pred_proba ≥ 0.5` as int |
-| `pred_proba` | model probability of attack |
+| `pred_is_attack` | `pred_proba ≥ threshold` as int, where `threshold` comes from `model_meta.json` (tuned on validation; see [ADR-0017](adr/0017-validation-tuned-alert-threshold.md)) |
+| `pred_proba` | binary model's probability of attack |
+| `pred_attack_cat` | attack-family model's label: `normal` or one of the 9 families ([ADR-0018](adr/0018-separate-attack-family-model.md)). Meaningful on alerts; the two models can disagree |
 | `model_version` | `--model_version` argument (default `v1`) |
 | `scored_ts` | scoring time |
 
 Exactly one row per gold flow (quality check 9). After retraining, run job 05
 with `--full_refresh` so every flow is rescored with the new model.
 
+## Model artifacts
+
+Written together by job 04 (local `models/`, Databricks
+`/Volumes/cyber_lakehouse/gold/artifacts/`); scoring refuses to run unless all
+three exist plus the frequency-encodings table.
+
+| File | Contents |
+|---|---|
+| `trained_model.pkl` (Databricks: `model.pkl`) | binary alerting model (joblib) |
+| `attack_family_model.pkl` | 10-class attack-family model (joblib) |
+| `model_meta.json` | `binary_model`, `threshold`, `target_recall`, `family_model`, `family_labels`, `features` (exact column order), `trained_at` |
+
 ## Model metrics
 
-`reports/metrics.json` (local) / `gold.model_metrics` (Databricks): per model
-accuracy, precision, recall, F1, ROC-AUC, training seconds; plus dataset
-sizes, sampling strategy, feature list, seed, and the selected model.
+`reports/metrics.json` (local): dataset sizes and the 60/20/20 split; the
+threshold policy; per binary model its tuned threshold, validation
+precision/recall, and test metrics at the threshold and at 0.5; per family
+model its validation macro-F1 and test accuracy, macro/weighted F1, per-class
+precision/recall/F1/support, and confusion matrix; the selected models; feature
+list and seed.
+
+Databricks: `gold.model_metrics` (one row per binary model: threshold,
+validation and test metrics, `selected`) and `gold.family_model_metrics` (one
+row per family model: validation/test macro-F1, accuracy, `selected`); full
+per-class results are logged to MLflow as `family_test_metrics.json`.

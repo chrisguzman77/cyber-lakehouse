@@ -1,7 +1,7 @@
 # Cyber Lakehouse – Network Intrusion Detection Pipeline
 
 A lakehouse-style data engineering + ML pipeline for detecting malicious network traffic using Apache Spark, Delta Lake, and Python.
-Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** through a Bronze → Silver → Gold architecture, trains and benchmarks three classifiers, and scores every flow at scale. Ingestion is **incremental and idempotent**: Structured Streaming / Auto Loader picks up new files only, and every downstream layer is an insert-only Delta MERGE fed by Change Data Feed, so reruns and re-delivered files never create duplicates. Runs locally in Docker and deploys to Databricks (serverless + Unity Catalog).
+Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** through a Bronze → Silver → Gold architecture, trains and benchmarks attack-detection and attack-family classifiers with an honest train/validation/test protocol, and scores every flow at scale. Ingestion is **incremental and idempotent**: Structured Streaming / Auto Loader picks up new files only, and every downstream layer is an insert-only Delta MERGE fed by Change Data Feed, so reruns and re-delivered files never create duplicates. Runs locally in Docker and deploys to Databricks (serverless + Unity Catalog).
 
 ---
 
@@ -10,7 +10,7 @@ Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** throug
 This project implements a Bronze → Silver → Gold lakehouse architecture to ingest, clean, feature-engineer, and analyze network flow data, followed by:
 
 - Incremental ingestion: a replay script delivers the raw data as chunk files over time, and each run processes only what's new
-- Training and benchmarking three ML models (RandomForest, LogisticRegression, HistGradientBoosting)
+- Training and benchmarking three model families (RandomForest, LogisticRegression, HistGradientBoosting) for two tasks: attack vs. benign, with the alert threshold tuned on a validation set for a SOC operating point (≥95% recall), and which of 9 attack families a flow belongs to
 - Incrementally scoring 2M+ flows via `mapInPandas` inference
 - Querying results and data-quality checks using Spark SQL
 
@@ -33,7 +33,9 @@ Silver (cleaned Delta: label/category normalization, CSV-quirk fixes,
    ↓  Change Data Feed inserts → insert-only MERGE
 Gold (row-wise ML feature table + analytics aggregates; CDF on)
    ↓
-ML Training (3-model benchmark, stratified 500k sample;
+ML Training (stratified 500k sample, 60/20/20 train/val/test;
+             binary model + validation-tuned alert threshold,
+             10-class attack-family model;
              freezes the frequency-encoding map → gold/freq_encodings)
    ↓  Change Data Feed inserts → frozen encodings → mapInPandas → insert-only MERGE
 Predictions (Delta, every flow scored exactly once per model)
@@ -89,7 +91,7 @@ cyber-lakehouse/
 │   │   ├── 03_build_gold_features.py
 │   │   ├── 04_train_model.py
 │   │   └── 05_score_predictions.py
-│   ├── utils/                 # Shared helpers (schema, features, io)
+│   ├── utils/                 # Shared helpers (schema, cleaning, features, incremental, modeling, io)
 │   └── sql/                   # Spark SQL analytics + quality checks
 │
 ├── databricks/                # Databricks notebooks + setup guide
@@ -132,7 +134,7 @@ Each job is a checkpointed stream with an `availableNow` trigger: it processes e
 ./scripts/run_job.sh src/jobs/04_train_model.py
 ./scripts/run_job.sh src/jobs/05_score_predictions.py --full_refresh
 ```
-Training freezes the frequency-encoding map, trains RandomForest, LogisticRegression, and HistGradientBoosting on a stratified 500k sample (`--max_rows` to change), writes the comparison to `reports/metrics.json`, and saves the best model by F1. `--full_refresh` drops the predictions table and its checkpoint so every flow is rescored with the new model (the model is loaded once per worker, so 2M+ rows never sit in one pandas frame).
+Training freezes the frequency-encoding map, splits a stratified 500k sample (`--max_rows` to change) 60/20/20, benchmarks the binary and attack-family models, and writes `models/trained_model.pkl`, `models/attack_family_model.pkl`, `models/model_meta.json` (alert threshold, feature order), and `reports/metrics.json`. `--full_refresh` drops the predictions table and its checkpoint so every flow is rescored with the new models (they are loaded once per worker, so 2M+ rows never sit in one pandas frame).
 
 To start over from scratch: `rm -rf data/{landing,bronze,silver,gold,checkpoints}`.
 
@@ -147,15 +149,48 @@ Runs the pipeline in Docker on small chunks and fails on any mismatch: a rerun w
 
 ## Model Results
 
-Binary classification (attack vs. benign) on a stratified 500,000-row sample of the 2,013,620-flow gold table, 80/20 split, seed 42. The deduplicated data is heavily imbalanced (~4% attacks), so F1 and ROC-AUC matter more than accuracy.
+**Protocol.** Stratified 500,000-row sample of the 2,013,620-flow gold table (~4% attacks), split **60/20/20 train/validation/test** stratified by attack family, seed 42. Every choice (alert threshold, which model to keep) is made on validation; the test split is only used to report the numbers below.
 
-| Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
-|---|---|---|---|---|---|
-| **random_forest** (saved) | 0.9873 | 0.7660 | 0.9922 | 0.8646 | 0.9985 |
-| logistic_regression | 0.9846 | 0.7268 | 0.9990 | 0.8414 | 0.9967 |
-| hist_gradient_boosting | 0.9867 | 0.7560 | 0.9978 | 0.8602 | 0.9989 |
+### Attack detection (binary)
 
-Full details in [`reports/metrics.json`](reports/metrics.json).
+Each model's alert threshold is the **highest-precision threshold that still catches ≥95% of validation attacks**, a SOC-style operating point. The kept model has the highest validation precision at that floor.
+
+| Model | Threshold | Precision | Recall | F1 | ROC-AUC | F1 at 0.5 |
+|---|---|---|---|---|---|---|
+| **hist_gradient_boosting** (saved) | 0.912 | **0.8394** | 0.9453 | **0.8892** | 0.9988 | 0.8546 |
+| random_forest | 0.766 | 0.8167 | 0.9546 | 0.8803 | 0.9985 | 0.8613 |
+| logistic_regression | 0.948 | 0.7692 | 0.9500 | 0.8501 | 0.9964 | 0.8407 |
+
+**The trade-off:** the previous model alerted at a fixed 0.5 with precision 0.766 and recall 0.992, so about 1 in 4 alerts was a false alarm. Tuning the threshold cuts false alarms to about 1 in 6 alerts (precision **0.84**) while still catching **94.5%** of attacks, raising F1 from 0.865 to 0.889. Scoring applies the saved threshold automatically.
+
+### Attack family (10 classes)
+
+A separate model labels each flow as `normal` or one of the 9 attack families, selected by validation macro-F1. It names the attack type for alerts; the binary model above remains the detector.
+
+| Model | Val macro-F1 | Test macro-F1 | Test accuracy |
+|---|---|---|---|
+| **random_forest** (saved) | 0.680 | **0.585** | 0.980 |
+| hist_gradient_boosting | 0.633 | 0.574 | 0.979 |
+| logistic_regression | 0.439 | 0.434 | 0.969 |
+
+Per family (test, saved model). Accuracy is dominated by `normal`, so the per-family numbers are the honest view:
+
+| Family | Precision | Recall | F1 | Test flows |
+|---|---|---|---|---|
+| normal | 1.000 | 0.985 | 0.992 | 95,971 |
+| generic | 0.973 | 0.912 | 0.942 | 867 |
+| reconnaissance | 0.862 | 0.898 | 0.879 | 589 |
+| exploits | 0.775 | 0.875 | 0.822 | 1,267 |
+| shellcode | 0.578 | 0.747 | 0.652 | 79 |
+| fuzzers | 0.426 | 0.961 | 0.590 | 1,017 |
+| backdoor | 0.467 | 0.350 | 0.400 | 20 |
+| dos | 0.461 | 0.301 | 0.364 | 216 |
+| analysis | 0.131 | 0.556 | 0.212 | 36 |
+| worms | 0.000 | 0.000 | 0.000 | 7 |
+
+Where it struggles: 1,245 benign flows are labeled `fuzzers` (hence fuzzers' low precision), about half of `dos` flows are labeled `exploits` (a known overlap in UNSW-NB15), and the rarest families have too few examples to learn (7 `worms` flows in the test set).
+
+Full details, including every model's validation metrics and the confusion matrix, in [`reports/metrics.json`](reports/metrics.json).
 
 ---
 

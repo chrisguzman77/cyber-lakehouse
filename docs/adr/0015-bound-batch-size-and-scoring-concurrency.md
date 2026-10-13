@@ -45,3 +45,21 @@ driver 2 GB (6 GB is OOM-killed). The first full-data incremental run showed:
   and smaller batches would only add MERGE overhead there.
 - If memory errors return, these are the first knobs to turn
   (see [`operations.md`](../operations.md)).
+
+## Update (2026-10-12, with [ADR-0018](0018-separate-attack-family-model.md))
+
+Adding the attack-family model surfaced two more limits, measured the same
+way:
+
+- **Training was OOM-killed** (exit 137) while sklearn fit six models.
+  Cause: `toPandas` without Arrow made the driver JVM materialize the 500k-row
+  sample as Java objects (~1.4 GB), and the JVM kept that heap after
+  `spark.stop()` while Python trained alongside it. The kernel killed the JVM
+  and orphaned the Python process. Fix: training enables
+  `spark.sql.execution.arrow.pyspark.enabled`, drops the raw pandas frame once
+  split, and frees the losing binary models before the family benchmark.
+  Result: 371 s, peak 2.58 GB.
+- **Scoring with both models was OOM-killed at 4 workers** (Python 1.32 GB:
+  each worker holds the 94 MB-on-disk family RandomForest). Default
+  `--score_partitions` is now **2**: full refresh of 2,013,620 flows in 265 s,
+  peak 2.69 GB (JVM 1.9 + Python 0.76).

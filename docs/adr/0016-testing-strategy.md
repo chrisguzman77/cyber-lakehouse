@@ -15,10 +15,12 @@ Three layers of verification:
 
 1. **pytest with Delta** — `delta-spark==3.3.1` is a dev dependency (pinned to
    the Docker image) and `tests/conftest.py` builds a Delta-enabled local
-   SparkSession. 25 tests cover schema, attack-category normalization,
+   SparkSession. The tests (33 as of ADR-0018) cover schema, attack-category normalization,
    cleaning, derived and frozen features, `first_per_key`, insert-only MERGE
-   idempotency, CDF reads, the replay script, and a mini streaming pipeline
-   (bronze → silver → gold) run repeatedly with a re-delivered file.
+   idempotency, CDF reads, the replay script, a mini streaming pipeline
+   (bronze → silver → gold) run repeatedly with a re-delivered file, and the
+   model-evaluation helpers (threshold choice, split, metrics, benchmarks),
+   which need no Spark and so also run on hosts without Java.
 2. **End-to-end in Docker** — `scripts/verify_incremental.sh --reset` runs the
    real jobs on small replay chunks and fails on any count mismatch: rerun,
    re-delivery, new delivery, train, full refresh, and rescoring.
