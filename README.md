@@ -12,7 +12,7 @@ This project implements a Bronze → Silver → Gold lakehouse architecture to i
 - Incremental ingestion: a replay script delivers the raw data as chunk files over time, and each run processes only what's new
 - Training and benchmarking three model families (RandomForest, LogisticRegression, HistGradientBoosting) for two tasks: attack vs. benign, with the alert threshold tuned on a validation set for a SOC operating point (≥95% recall), and which of 9 attack families a flow belongs to
 - Incrementally scoring 2M+ flows via `mapInPandas` inference
-- Querying results and data-quality checks using Spark SQL
+- A data-quality gate after every run (results kept in `gold.quality_results`) and a three-page Databricks AI/BI dashboard: threat overview, model quality, pipeline health
 
 The system is fully containerized (Docker) and also runs on Databricks — see [`databricks/README.md`](databricks/README.md).
 
@@ -39,8 +39,8 @@ ML Training (stratified 500k sample, 60/20/20 train/val/test;
              freezes the frequency-encoding map → gold/freq_encodings)
    ↓  Change Data Feed inserts → frozen encodings → mapInPandas → insert-only MERGE
 Predictions (Delta, every flow scored exactly once per model)
-   ↓
-SQL Analytics + Data Quality Checks
+   ↓  11 data-quality checks per run → gold.quality_results (failure fails the run)
+Dashboard (Databricks AI/BI: alerts, model quality, pipeline health)
 ```
 ---
 
@@ -90,11 +90,12 @@ cyber-lakehouse/
 │   │   ├── 02_clean_silver.py
 │   │   ├── 03_build_gold_features.py
 │   │   ├── 04_train_model.py
-│   │   └── 05_score_predictions.py
-│   ├── utils/                 # Shared helpers (schema, cleaning, features, incremental, modeling, io)
-│   └── sql/                   # Spark SQL analytics + quality checks
+│   │   ├── 05_score_predictions.py
+│   │   └── 06_quality_checks.py
+│   ├── utils/                 # Shared helpers (schema, cleaning, features, incremental, modeling, quality, io)
+│   └── sql/                   # Ad-hoc Spark SQL analytics
 │
-├── databricks/                # Databricks notebooks + setup guide
+├── databricks/                # Databricks notebooks, AI/BI dashboard (dashboards/), setup guide
 ├── scripts/                   # fetch_data.sh, run_job.sh
 ├── data/                      # bronze/silver/gold Delta tables (gitignored)
 ├── models/                    # Trained model artifacts (gitignored)
@@ -126,6 +127,7 @@ The replay script splits the raw CSVs into chunk files and moves the next N into
 ./scripts/run_job.sh src/jobs/02_clean_silver.py         # new Bronze rows → Silver (dedupe + MERGE)
 ./scripts/run_job.sh src/jobs/03_build_gold_features.py  # new Silver rows → Gold features + analytics
 ./scripts/run_job.sh src/jobs/05_score_predictions.py    # new Gold rows → predictions (skips until training has run)
+./scripts/run_job.sh src/jobs/06_quality_checks.py       # 11 checks → gold/quality_results; exits non-zero on a failure
 ```
 Each job is a checkpointed stream with an `availableNow` trigger: it processes everything new since its last run, then stops. Repeat steps 2–3 as often as you like; with everything released, Silver holds 2,013,620 unique flows. (Windows: `.\run_spark_job.ps1 <job>` is the PowerShell equivalent.)
 
@@ -194,8 +196,16 @@ Full details, including every model's validation metrics and the confusion matri
 
 ---
 
-## Analytics & Data Quality (Spark SQL)
+## Data Quality
 
+`src/utils/quality.py` defines 11 checks that must each find zero violations:
+- **Silver:** null labels, negative durations, duplicate flow hashes
+- **Gold:** duplicate flow hashes, `is_attack` outside {0, 1}, nulls in key features, attack share outside the 2–25% sanity band
+- **Predictions:** probabilities outside [0, 1], missing attack-family labels, unscored flows, flows scored twice
+
+`06_quality_checks` runs them at the end of every pipeline run and appends one row per check to `gold.quality_results`, so the history is kept. If any check fails, the job fails, which makes it a gate. A check on a table that doesn't exist yet, such as predictions before the first training run, is recorded as `missing`, not as a failure.
+
+Ad-hoc analytics queries (attack counts by category, prediction distribution, most suspicious flows) are in `src/sql/analytics.sql`:
 ```
 docker compose -f docker/docker-compose.yml exec spark \
   /usr/local/lib/python3.11/site-packages/pyspark/bin/spark-sql \
@@ -205,14 +215,17 @@ docker compose -f docker/docker-compose.yml exec spark \
   --conf spark.jars.ivy=/root/.ivy2 \
   -f src/sql/analytics.sql
 ```
-- `src/sql/analytics.sql` — attack counts by category, prediction distribution, most suspicious flows
-- `src/sql/quality_checks.sql` — per-layer row counts plus violation queries (null labels, negative durations, duplicate flow hashes in Silver and Gold, probability bounds, unscored or double-scored flows, attack-rate sanity band) that must all return 0
 
 ---
 
 ## Databricks Deployment
 
-The same pipeline runs on Databricks: serverless compute, Auto Loader over a landing Volume, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`) with Change Data Feed, stream checkpoints in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. It is split into two Workflows: `cyber-lakehouse-pipeline` (replay → bronze → silver → gold → incremental scoring, run repeatedly) and `cyber-lakehouse-train` (train → full rescore, on demand). Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
+The same pipeline runs on Databricks: serverless compute, Auto Loader over a landing Volume, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`) with Change Data Feed, stream checkpoints in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. It is split into two Workflows: `cyber-lakehouse-pipeline` (replay → bronze → silver → gold → incremental scoring → quality gate, run repeatedly) and `cyber-lakehouse-train` (train → full rescore, on demand). Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
+
+**Dashboard** — [`databricks/dashboards/cyber_lakehouse.lvdash.json`](databricks/dashboards/cyber_lakehouse.lvdash.json) is a three-page Databricks AI/BI dashboard kept in version control:
+- **Threat overview:** alerts over time by attack family, most-targeted hosts, highest-confidence alerts
+- **Model quality:** the selected threshold, precision and recall, plus every candidate model. All numbers are from the test split only.
+- **Pipeline health:** latest data-quality results and their history, rows ingested per micro-batch vs. new unique flows, rows per layer
 
 **Incremental pipeline Workflow** — each run of `cyber-lakehouse-pipeline` delivers the next 3 chunks (~750k rows) and processes only those through every layer, in 2–3 minutes on serverless. The last run below had nothing new to deliver and left every table's row count unchanged:
 
@@ -263,7 +276,7 @@ uv run pytest          # feature-derivation tests run under a local SparkSession
 - Incremental, idempotent ingestion: checkpointed streams + insert-only Delta MERGE + Change Data Feed
 - SHA-256 flow-identity deduplication
 - No train/serve skew: categorical encodings frozen at training time and reused at scoring
-- SQL data-quality gates per layer
+- Data-quality gate after every run, with each run's results kept for trend tracking
 - Deterministic ML pipeline (fixed seeds, stratified sampling, committed metrics)
 - Reproducible containerized environment; identical transformation code local + Databricks
 

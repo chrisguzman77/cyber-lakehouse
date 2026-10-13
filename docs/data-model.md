@@ -17,6 +17,7 @@ in the `cyber_lakehouse` catalog.
 | Model metrics | `reports/metrics.json` | `gold.model_metrics`, `gold.family_model_metrics` | 04 | overwrite | `model` | no |
 | Model artifacts | `models/` | Volume `gold.artifacts` | 04 | overwrite | — | — |
 | Predictions | `data/gold/predictions` | `gold.predictions` | 05 | insert-only MERGE | `flow_hash` | yes |
+| Quality results | `data/gold/quality_results` | `gold.quality_results` | 06 | append per run | (`run_ts`, `check_name`) | no |
 
 Stream checkpoints: `data/checkpoints/{bronze,silver,gold_features,predictions}`
 locally; `/Volumes/cyber_lakehouse/bronze/checkpoints/<same names>` on
@@ -105,6 +106,20 @@ At training and scoring time, `apply_frequency_encodings` adds
 Model input = 38 raw + 13 derived + 3 frequency encodings = **54 features**
 (numeric columns only; keys, labels, and strings excluded).
 
+## Quality results
+
+One row per check per run of job 06 ([ADR-0019](adr/0019-persisted-quality-gate.md)); checks are defined in
+`src/utils/quality.py`.
+
+| Column | Meaning |
+|---|---|
+| `run_ts` | when the run started (same for every check in a run) |
+| `check_name` | e.g. `duplicate_flow_hash_silver`, `unscored_flows` |
+| `layer` | `silver`, `gold`, or `predictions` |
+| `description` | what the check looks for |
+| `violations` | rows violating the check (null when the table doesn't exist yet) |
+| `status` | `pass` (0 violations), `fail` (> 0), or `missing` (table absent) |
+
 ## Gold analytics
 
 Recomputed from all of silver on every run of job 03.
@@ -138,7 +153,7 @@ Values absent from the table (unseen at training time) encode as 0.0
 | `model_version` | `--model_version` argument (default `v1`) |
 | `scored_ts` | scoring time |
 
-Exactly one row per gold flow (quality check 9). After retraining, run job 05
+Exactly one row per gold flow (quality checks `unscored_flows` and `duplicate_predictions`). After retraining, run job 05
 with `--full_refresh` so every flow is rescored with the new model.
 
 ## Model artifacts

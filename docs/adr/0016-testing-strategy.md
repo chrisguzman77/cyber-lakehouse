@@ -24,7 +24,7 @@ Three layers of verification:
 2. **End-to-end in Docker** — `scripts/verify_incremental.sh --reset` runs the
    real jobs on small replay chunks and fails on any count mismatch: rerun,
    re-delivery, new delivery, train, full refresh, and rescoring.
-3. **SQL quality gates** on the full dataset (`src/sql/quality_checks.sql`).
+3. **Data-quality gate** on the full dataset after every run (`06_quality_checks`, [ADR-0019](0019-persisted-quality-gate.md)); its checks are themselves unit-tested with clean, dirty, and missing-table fixtures.
 
 CI (GitHub Actions) runs ruff and pytest with Java 17 on every push.
 
