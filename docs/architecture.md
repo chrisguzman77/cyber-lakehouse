@@ -53,7 +53,7 @@ flowchart TD
     silver -->|03 CDF inserts → derived features<br/>→ insert-only MERGE| gold[(Gold features<br/>CDF on)]
     silver -->|03 batch recompute| analytics[(Gold analytics)]
     gold -->|04 train: compute + persist<br/>frequency encodings| enc[(freq_encodings)]
-    gold -->|04 stratified 500k sample| model[Model artifact<br/>+ metrics]
+    gold -->|04 stratified 500k sample, 60/20/20 split| model[Binary model + tuned threshold,<br/>attack-family model, metrics]
     gold -->|05 CDF inserts → frozen encodings<br/>→ mapInPandas → insert-only MERGE| pred[(Predictions)]
     enc --> pred
     model --> pred
@@ -73,8 +73,8 @@ processes everything new since the previous run and then stops. Job 04
 | Bronze ingest | `src/jobs/01_ingest_bronze.py` | Stream new landing files into an append-only Delta table with an explicit 49-column schema plus `ingest_ts` and `source_file`. |
 | Silver clean | `src/jobs/02_clean_silver.py`, `src/utils/cleaning.py` | Normalize labels and attack categories, fix CSV quirks, drop corrupt rows, compute `flow_hash`, dedupe per micro-batch, insert-only MERGE. |
 | Gold features | `src/jobs/03_build_gold_features.py`, `src/utils/features.py` | Stream silver's newly inserted rows, add 13 derived features, insert-only MERGE; recompute the analytics aggregate. |
-| Training | `src/jobs/04_train_model.py` | Freeze frequency encodings, sample, train and benchmark 3 classifiers, save the best by F1 and the metrics report. |
-| Scoring | `src/jobs/05_score_predictions.py` | Stream gold's newly inserted rows, apply frozen encodings, score with `mapInPandas`, insert-only MERGE; `--full_refresh` rescores everything. |
+| Training | `src/jobs/04_train_model.py`, `src/utils/modeling.py` | Freeze frequency encodings; sample and split 60/20/20; benchmark binary models with a validation-tuned alert threshold and 10-class attack-family models; save both best models, `model_meta.json` (threshold, feature order), and the metrics report. |
+| Scoring | `src/jobs/05_score_predictions.py` | Stream gold's newly inserted rows, apply frozen encodings, score with `mapInPandas` (probability vs. the saved threshold, plus the attack family), insert-only MERGE; `--full_refresh` rescores everything. |
 | Incremental helpers | `src/utils/incremental.py` | `first_per_key`, `ensure_delta_table`, `insert_new_keys`, `cdf_inserts`, `append_stream`, `run_insert_stream` — shared by local jobs and notebooks. |
 | Schema | `src/utils/schema.py` | The 49-column UNSW-NB15 schema, canonical attack categories, quality rule metadata. |
 | Paths | `src/utils/io.py` | Local data/model/report directories. |
@@ -106,10 +106,13 @@ processes everything new since the previous run and then stops. Job 04
   `cyber_lakehouse.gold.artifacts`.
 - Tables are Unity Catalog managed Delta tables: `cyber_lakehouse.bronze.traffic`,
   `silver.traffic_clean`, `gold.features`, `gold.analytics`,
-  `gold.freq_encodings`, `gold.model_metrics`, `gold.predictions`.
+  `gold.freq_encodings`, `gold.model_metrics`, `gold.family_model_metrics`,
+  `gold.predictions`.
 - Bronze uses **Auto Loader** (`cloudFiles`) instead of the plain file source.
-- Training logs one MLflow run per model and registers the best as
-  `cyber_lakehouse.gold.attack_classifier` in the UC model registry.
+- Training logs one MLflow run per model (binary and family) and registers
+  the best of each in the UC model registry as
+  `cyber_lakehouse.gold.attack_classifier` (with its alert threshold) and
+  `cyber_lakehouse.gold.attack_family_classifier`.
 - Orchestrated as two Workflows ([ADR-0014](adr/0014-separate-pipeline-and-training-workflows.md)):
   - `cyber-lakehouse-pipeline`: 00 replay → 01 → 02 → 03 → 05 (run repeatedly)
   - `cyber-lakehouse-train`: 04 → 05 with `full_refresh=true` (on demand)
@@ -168,31 +171,49 @@ processes everything new since the previous run and then stops. Job 04
 
 - Frequency encodings are computed once at training time, persisted, and
   applied by both training and scoring ([ADR-0013](adr/0013-freeze-frequency-encodings-at-training.md)).
-- Scoring selects features by the model's recorded `feature_names_in_`, so
-  column order always matches training.
+- The alert threshold and feature order are saved in `model_meta.json` at
+  training time and read by scoring, so `pred_is_attack` uses exactly the
+  threshold that was evaluated ([ADR-0017](adr/0017-validation-tuned-alert-threshold.md)).
 
 ### Reproducibility
 
 - Pinned PySpark/Delta versions in the Docker image and dev dependencies.
-- Fixed seed (42) for sampling and model training; stratified sampling.
+- Fixed seed (42) for sampling, splitting, and model training; stratified
+  sampling and splits.
+- Every model choice (threshold, which model to keep) is made on the
+  validation split; the test split is reporting-only.
 - Metrics committed in `reports/metrics.json`.
 
 ### Resource constraints
 
 The development machine has 8 GB RAM. Stream readers cap micro-batches at
-128 MB and scoring limits concurrent Python workers to 4
+128 MB, training collects its sample with Arrow, and scoring limits concurrent
+Python workers to 2
 ([ADR-0015](adr/0015-bound-batch-size-and-scoring-concurrency.md)).
 
 ## 8. Results and performance
 
-**Model results** — stratified 500k sample of the 2,013,620-flow gold table,
-80/20 split, seed 42; ~4% attacks:
+**Model results** — stratified 500k sample of the 2,013,620-flow gold table
+(~4% attacks), 60/20/20 train/validation/test stratified by attack family,
+seed 42. Choices are made on validation; numbers below are test.
 
-| Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
+*Attack detection* — threshold = highest validation precision at ≥95% recall:
+
+| Model | Threshold | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|---|
-| **RandomForest** (selected) | 0.9873 | 0.7660 | 0.9922 | 0.8646 | 0.9985 |
-| LogisticRegression | 0.9846 | 0.7268 | 0.9990 | 0.8414 | 0.9967 |
-| HistGradientBoosting | 0.9867 | 0.7560 | 0.9978 | 0.8602 | 0.9989 |
+| **HistGradientBoosting** (selected) | 0.912 | 0.8394 | 0.9453 | 0.8892 | 0.9988 |
+| RandomForest | 0.766 | 0.8167 | 0.9546 | 0.8803 | 0.9985 |
+| LogisticRegression | 0.948 | 0.7692 | 0.9500 | 0.8501 | 0.9964 |
+
+Compared with the previous fixed 0.5 threshold (precision 0.766, recall
+0.992), false alarms fall from ~1 in 4 alerts to ~1 in 6 while 94.5% of
+attacks are still caught.
+
+*Attack family* (10 classes) — RandomForest selected by validation macro-F1:
+test macro-F1 0.585, accuracy 0.980. Strong on generic, reconnaissance, and
+exploits (F1 0.82–0.94); weak on dos, analysis, backdoor, and worms. Per-class
+results are in the README and `reports/metrics.json`
+([ADR-0018](adr/0018-separate-attack-family-model.md)).
 
 **Local run times** (Docker, 2 GB driver, full dataset, 2026-10-12):
 
@@ -201,16 +222,20 @@ The development machine has 8 GB RAM. Stream readers cap micro-batches at
 | 01 bronze | 189 s | 9 s |
 | 02 silver | 153 s | 27 s |
 | 03 gold | 135 s | 28 s |
-| 04 training | 192–362 s | — |
-| 05 scoring (full refresh) | 136 s | 18 s |
+| 04 training (binary + family) | 371 s | — |
+| 05 scoring (full refresh, both models) | 265 s | 18 s |
 
 ## 9. Known limitations
 
 - **Dataset realism.** UNSW-NB15 attacks are synthetic and some features
   (e.g. TTLs) are known to be unusually predictive on this dataset; scores are
   likely optimistic for real traffic. Cross-dataset evaluation is future work.
-- **Precision ~0.77** at the default 0.5 threshold: roughly 1 in 4 alerts is
-  a false positive. Threshold tuning is future work.
+- **Precision 0.84 at 94.5% recall**: about 1 in 6 alerts is still a false
+  positive, and ~5.5% of attacks are missed. The 95% recall floor is a
+  judgment call, not derived from real costs.
+- **Attack-family labels are unreliable for rare families** (dos, analysis,
+  backdoor, worms), and 1.3% of benign flows are labeled `fuzzers`. The family
+  label is meant for alerts only; the two models can disagree.
 - **Training uses a 500k sample** (25% of gold) to fit in local memory;
   scoring covers every flow.
 - **Encodings are not embedded in the registered MLflow model**; the
@@ -228,7 +253,7 @@ The development machine has 8 GB RAM. Stream readers cap micro-batches at
 ## 10. Roadmap
 
 1. ~~Streaming ingestion + incremental MERGE~~ (done, 2026-10-12)
-2. Evaluation: train/validation/test split, precision-recall threshold tuning,
-   multiclass attack-family model, cross-dataset test on CIC-IDS2017
+2. ~~Evaluation: train/validation/test split, threshold tuning, attack-family
+   model~~ (done, 2026-10-12); cross-dataset test on CIC-IDS2017 (next)
 3. Dashboard (Databricks AI/BI) over gold aggregates, predictions, and
    persisted quality-check results

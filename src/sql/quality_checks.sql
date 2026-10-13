@@ -48,10 +48,12 @@ SELECT COUNT(*) AS is_attack_domain_violations
 FROM gold_features
 WHERE is_attack NOT IN (0, 1) OR is_attack IS NULL;
 
--- 6) Prediction probabilities out of [0,1] (must be 0)
-SELECT COUNT(*) AS pred_proba_bounds_violations
-FROM gold_predictions
-WHERE pred_proba < 0 OR pred_proba > 1 OR pred_proba IS NULL;
+-- 6) Prediction probabilities out of [0,1] or missing attack-family prediction (must be 0)
+SELECT
+  SUM(CASE WHEN pred_proba < 0 OR pred_proba > 1 OR pred_proba IS NULL THEN 1 ELSE 0 END)
+    AS pred_proba_bounds_violations,
+  SUM(CASE WHEN pred_attack_cat IS NULL THEN 1 ELSE 0 END) AS pred_attack_cat_null_violations
+FROM gold_predictions;
 
 -- 7) Attack-rate sanity: the raw dataset is ~87/13 benign/attack, but attack
 -- flows (especially "generic") are heavily duplicated, so after flow-level

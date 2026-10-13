@@ -45,9 +45,13 @@ uv run python -m src.utils.replay --files 3          # deliver the next 3 chunks
 ./scripts/run_job.sh src/jobs/05_score_predictions.py --full_refresh
 ```
 
-Training overwrites `models/trained_model.pkl`, `reports/metrics.json`, and
-`data/gold/freq_encodings`. Always follow it with a `--full_refresh` scoring
-run so predictions come from a single model.
+Training overwrites `models/trained_model.pkl`, `models/attack_family_model.pkl`,
+`models/model_meta.json` (alert threshold, feature order),
+`reports/metrics.json`, and `data/gold/freq_encodings`. Always follow it with
+a `--full_refresh` scoring run so predictions come from a single model. This
+is also required after the predictions schema changes (e.g. the
+`pred_attack_cat` column added in ADR-0018), since `--full_refresh` recreates
+the table.
 
 ### Job parameters
 
@@ -59,7 +63,7 @@ run so predictions come from a single model.
 | 02, 03, 05 | `--max_bytes_per_trigger` | 128m | upstream data per micro-batch |
 | 04 | `--max_rows` | 500000 | stratified training sample size |
 | 04 | `--seed` | 42 | sampling/split/model seed |
-| 05 | `--score_partitions` | 4 | concurrent Python scoring workers |
+| 05 | `--score_partitions` | 2 | concurrent Python scoring workers (each loads both models) |
 | 05 | `--model_version` | v1 | label stored on each prediction |
 | 05 | `--full_refresh` | off | drop predictions + checkpoint, rescore all |
 | all | `--checkpoint`, `--in_path`, `--out_path`, … | under `data/` | override locations |

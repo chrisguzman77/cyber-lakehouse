@@ -15,7 +15,7 @@ commit history; their dates are when the decision was implemented.
 | [0003](0003-sha256-flow-identity-key.md) | SHA-256 flow-identity key for deduplication | Accepted | 2026-08-19 |
 | [0004](0004-shared-code-local-and-databricks.md) | One shared code base for local Docker and Databricks | Accepted | 2026-08-19 |
 | [0005](0005-scikit-learn-on-stratified-sample.md) | scikit-learn on a stratified sample, not Spark MLlib | Accepted | 2026-08-19 |
-| [0006](0006-imbalance-handling-and-f1-model-selection.md) | Class weighting and F1-based model selection | Accepted | 2026-08-19 |
+| [0006](0006-imbalance-handling-and-f1-model-selection.md) | Class weighting and F1-based model selection | Accepted (selection rule superseded by 0017) | 2026-08-19 |
 | [0007](0007-distributed-inference-mapinpandas.md) | Distributed inference with `mapInPandas` | Accepted | 2026-08-19 |
 | [0008](0008-try-cast-under-ansi-mode.md) | `try_cast` for dirty string columns under ANSI mode | Accepted | 2026-08-24 |
 | [0009](0009-mlflow-tracking-and-uc-registry.md) | MLflow tracking and Unity Catalog model registry | Accepted | 2026-08-24 |
@@ -26,6 +26,8 @@ commit history; their dates are when the decision was implemented.
 | [0014](0014-separate-pipeline-and-training-workflows.md) | Separate pipeline and training Workflows | Accepted | 2026-10-12 |
 | [0015](0015-bound-batch-size-and-scoring-concurrency.md) | Bound micro-batch size and scoring concurrency | Accepted | 2026-10-12 |
 | [0016](0016-testing-strategy.md) | Delta-enabled pytest plus a Docker end-to-end check | Accepted | 2026-10-12 |
+| [0017](0017-validation-tuned-alert-threshold.md) | Validation-tuned alert threshold at ≥95% recall | Accepted | 2026-10-12 |
+| [0018](0018-separate-attack-family-model.md) | Separate 10-class attack-family model | Accepted | 2026-10-12 |
 
 ## Template
 
