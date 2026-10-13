@@ -68,7 +68,18 @@ the table.
 | 05 | `--full_refresh` | off | drop predictions + checkpoint, rescore all |
 | all | `--checkpoint`, `--in_path`, `--out_path`, … | under `data/` | override locations |
 
-### Analytics and quality checks
+### Data-quality gate
+
+```bash
+./scripts/run_job.sh src/jobs/06_quality_checks.py
+```
+
+Runs the 11 checks in `src/utils/quality.py`, prints `PASS`/`FAIL`/`MISSING`
+per check, appends the results to `data/gold/quality_results`, and exits
+non-zero if any check fails. Run it after scoring (it is the last task of the
+Databricks pipeline Workflow).
+
+### Ad-hoc analytics
 
 ```bash
 docker compose -f docker/docker-compose.yml exec spark \
@@ -77,10 +88,8 @@ docker compose -f docker/docker-compose.yml exec spark \
   --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
   --conf spark.jars.ivy=/root/.ivy2 \
-  -f src/sql/quality_checks.sql        # or src/sql/analytics.sql
+  -f src/sql/analytics.sql
 ```
-
-Every `*_violations` column must be 0 and the attack-share verdict `OK`.
 
 Quick row counts per layer (JSON):
 
@@ -135,6 +144,8 @@ Setup, Workflow definitions, and the verification checklist live in
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `06_quality_checks` fails (`[FAIL] N data-quality check(s) failed`) | A check found violations; its rows in `quality_results` have `status = 'fail'` and the violation count | Inspect the failing check's query in `src/utils/quality.py` against the named layer; fix the data or the upstream job, then rerun. |
+| Dashboard widget shows an error | The table it reads doesn't exist yet (model metrics before training, quality results before the first `06` run) | Run the train Workflow and one pipeline run with `06_quality_checks`. |
 | Job exits with code **137** | Container killed by the kernel OOM killer (Docker VM ~3.8 GB) | Keep `--driver-memory 2g` (6g is OOM-killed); lower `--max_bytes_per_trigger` or `--score_partitions`. Streams resume from their checkpoint, so just rerun. |
 | Scoring prints `[SKIP] No trained model + frequency encodings yet` | Training hasn't run yet, or a model from an older deployment exists without its encodings table | Run job 04 (or `cyber-lakehouse-train`), then 05 with `--full_refresh`. |
 | Spark tests all skipped on the host | No Java runtime | Install Java 17, or run tests in the container. |

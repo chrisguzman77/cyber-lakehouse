@@ -39,7 +39,9 @@ flowchart LR
     L --> P[Lakehouse pipeline<br/>Spark + Delta Lake]
     P --> T[(Delta tables<br/>bronze / silver / gold)]
     P --> M[Model artifact +<br/>reports/metrics.json]
-    T --> Q[Spark SQL analytics<br/>+ quality checks]
+    T --> Q[Quality gate<br/>gold.quality_results]
+    T --> D[AI/BI dashboard]
+    Q --> D
     P -. Databricks .-> U[(Unity Catalog tables,<br/>MLflow, UC model registry)]
 ```
 
@@ -57,6 +59,9 @@ flowchart TD
     gold -->|05 CDF inserts → frozen encodings<br/>→ mapInPandas → insert-only MERGE| pred[(Predictions)]
     enc --> pred
     model --> pred
+    pred -->|06 11 checks over silver, gold, predictions| dq[(Quality results<br/>append per run)]
+    pred --> dash[AI/BI dashboard]
+    dq --> dash
 ```
 
 Each arrow labeled 01–05 is a job in `src/jobs/` (and a matching notebook in
@@ -78,7 +83,9 @@ processes everything new since the previous run and then stops. Job 04
 | Incremental helpers | `src/utils/incremental.py` | `first_per_key`, `ensure_delta_table`, `insert_new_keys`, `cdf_inserts`, `append_stream`, `run_insert_stream` — shared by local jobs and notebooks. |
 | Schema | `src/utils/schema.py` | The 49-column UNSW-NB15 schema, canonical attack categories, quality rule metadata. |
 | Paths | `src/utils/io.py` | Local data/model/report directories. |
-| SQL | `src/sql/analytics.sql`, `src/sql/quality_checks.sql` | Analytics queries and data-quality gates (violation queries must return 0). |
+| Data quality | `src/jobs/06_quality_checks.py`, `src/utils/quality.py` | 11 checks over silver, gold, and predictions; append one row per check per run to `quality_results`; fail the job if any check fails (missing tables are recorded, not failed). |
+| Dashboard | `databricks/dashboards/cyber_lakehouse.lvdash.json` | Three-page Databricks AI/BI dashboard (threat overview, model quality, pipeline health) kept in version control. |
+| SQL | `src/sql/analytics.sql` | Ad-hoc analytics queries. |
 | Verification | `scripts/verify_incremental.sh`, `src/jobs/table_counts.py` | End-to-end idempotency check in Docker. |
 | Runtime | `docker/`, `scripts/run_job.sh`, `run_spark_job.ps1` | Containerized Spark + Delta; `spark-submit` wrapper with Delta config and 2 GB driver memory. |
 
@@ -114,7 +121,7 @@ processes everything new since the previous run and then stops. Job 04
   `cyber_lakehouse.gold.attack_classifier` (with its alert threshold) and
   `cyber_lakehouse.gold.attack_family_classifier`.
 - Orchestrated as two Workflows ([ADR-0014](adr/0014-separate-pipeline-and-training-workflows.md)):
-  - `cyber-lakehouse-pipeline`: 00 replay → 01 → 02 → 03 → 05 (run repeatedly)
+  - `cyber-lakehouse-pipeline`: 00 replay → 01 → 02 → 03 → 05 → 06 quality gate (run repeatedly)
   - `cyber-lakehouse-train`: 04 → 05 with `full_refresh=true` (on demand)
 
 > **Status:** verified on Databricks Free Edition on 2026-10-12. Four
@@ -166,10 +173,13 @@ processes everything new since the previous run and then stops. Job 04
 - Cleaning rules in `clean_traffic`: null labels and negative durations
   dropped, blank/null counters coerced to 0, attack category normalized to 10
   canonical values.
-- `src/sql/quality_checks.sql` gates: null labels, negative durations,
-  duplicate keys in silver and gold, `is_attack` domain, probability bounds,
-  unscored or double-scored flows, attack-share sanity band (2–25%). Latest
-  full-data run: all violations 0, attack share 4.06%.
+- A quality gate (`06_quality_checks`, [ADR-0019](adr/0019-persisted-quality-gate.md)) runs
+  11 checks after every pipeline run: null labels, negative durations,
+  duplicate keys in silver and gold, `is_attack` domain, key-feature nulls,
+  attack-share sanity band (2–25%), probability bounds, missing family labels,
+  unscored or double-scored flows. Results are appended to `quality_results`
+  so the dashboard shows the latest status and the history; any failure fails
+  the run. Latest full-data run: all violations 0, attack share 4.06%.
 
 ### Train/serve consistency
 
@@ -259,5 +269,5 @@ results are in the README and `reports/metrics.json`
 1. ~~Streaming ingestion + incremental MERGE~~ (done, 2026-10-12)
 2. ~~Evaluation: train/validation/test split, threshold tuning, attack-family
    model~~ (done, 2026-10-12); cross-dataset test on CIC-IDS2017 (next)
-3. Dashboard (Databricks AI/BI) over gold aggregates, predictions, and
-   persisted quality-check results
+3. ~~Dashboard (Databricks AI/BI) over predictions, model metrics, and
+   persisted quality-check results~~ (built 2026-10-13, [ADR-0020](adr/0020-dashboard-as-code.md))

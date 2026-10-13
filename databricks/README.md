@@ -45,7 +45,7 @@ rows.
 
    | Workflow | Tasks | When to run |
    |---|---|---|
-   | `cyber-lakehouse-pipeline` | `00_replay_landing` → `01_ingest_bronze` → `02_clean_silver` → `03_build_gold_features` → `05_score_predictions` | Repeatedly — each run delivers and processes the next chunks |
+   | `cyber-lakehouse-pipeline` | `00_replay_landing` → `01_ingest_bronze` → `02_clean_silver` → `03_build_gold_features` → `05_score_predictions` → `06_quality_checks` | Repeatedly — each run delivers and processes the next chunks |
    | `cyber-lakehouse-train` | `04_train_model` → `05_score_predictions` with parameter `full_refresh` = `true` | On demand — retrain, then rescore every flow |
 
    `00_replay_landing` takes a `files` parameter (default 3 chunks of 250k
@@ -76,6 +76,23 @@ train Workflow's `full_refresh` recreates `gold.predictions` with the new
 | `03_build_gold_features` | `gold.features` (insert-only MERGE, CDF on), `gold.analytics` |
 | `04_train_model` | `gold.freq_encodings`, `gold.model_metrics` (3 binary models, tuned thresholds), `gold.family_model_metrics` (3 family models), `model.pkl` + `attack_family_model.pkl` + `model_meta.json` in the artifacts Volume, UC models `attack_classifier` and `attack_family_classifier` |
 | `05_score_predictions` | `gold.predictions` (insert-only MERGE): `pred_is_attack` at the tuned threshold, `pred_proba`, `pred_attack_cat` |
+| `06_quality_checks` | appends one row per check to `gold.quality_results`; fails the task if any check fails |
+
+## Dashboard
+
+`dashboards/cyber_lakehouse.lvdash.json` is a three-page AI/BI dashboard:
+- **Threat overview:** alerts over time and by family, most-targeted hosts, top alerts
+- **Model quality:** test-split metrics only
+- **Pipeline health:** data-quality status and history, rows per micro-batch, rows per layer
+
+It reads the tables above. The model page needs `gold.model_metrics` and `gold.family_model_metrics`, so run the train Workflow first. The health page needs `gold.quality_results`, so run the pipeline Workflow once with the `06_quality_checks` task.
+
+1. Pull the Git folder. The file appears as a dashboard in `databricks/dashboards/`.
+   If it doesn't, import it: **Dashboards** → **Create** (dropdown) → **Import dashboard from file**, and choose the `.lvdash.json` file.
+2. Open it and pick the SQL warehouse (Free Edition: **Serverless Starter Warehouse**) if prompted.
+3. Click **Publish** to share a read-only, cached view.
+
+If the import reports an error, the message names the dataset or widget at fault, which makes it straightforward to fix.
 
 ## Verification checklist
 
@@ -87,6 +104,8 @@ train Workflow's `full_refresh` recreates `gold.predictions` with the new
 - [ ] `SELECT DISTINCT attack_cat_norm FROM cyber_lakehouse.silver.traffic_clean` → 10 categories
 - [ ] `SELECT COUNT(*) FROM cyber_lakehouse.gold.model_metrics` → 3 rows; `gold.family_model_metrics` → 3 rows; exactly one `selected = true` in each
 - [ ] `SELECT COUNT(*) FROM cyber_lakehouse.gold.predictions WHERE pred_attack_cat IS NULL` → 0
+- [ ] `06_quality_checks` is green and its latest run in `gold.quality_results` shows 11 `pass` rows
+- [ ] All three dashboard pages render without errors
 - [ ] `gold.predictions` row count equals `gold.features` row count
 
 ## Resetting
@@ -101,6 +120,7 @@ DROP TABLE IF EXISTS cyber_lakehouse.silver.traffic_clean;
 DROP TABLE IF EXISTS cyber_lakehouse.gold.features;
 DROP TABLE IF EXISTS cyber_lakehouse.gold.predictions;
 DROP TABLE IF EXISTS cyber_lakehouse.gold.freq_encodings;
+DROP TABLE IF EXISTS cyber_lakehouse.gold.quality_results;
 ```
 
 then, in a notebook cell:

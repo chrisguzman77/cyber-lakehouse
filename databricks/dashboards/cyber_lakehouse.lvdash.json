@@ -1,0 +1,2091 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpis",
+      "displayName": "Prediction KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  COUNT(*) AS flows,\n",
+        "  SUM(pred_is_attack) AS alerts,\n",
+        "  ROUND(100 * AVG(pred_is_attack), 2) AS alert_rate_pct\n",
+        "FROM cyber_lakehouse.gold.predictions"
+      ]
+    },
+    {
+      "name": "ds_alert_kpis",
+      "displayName": "Alert host KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  COUNT(DISTINCT s.dstip) AS targeted_hosts,\n",
+        "  COUNT(DISTINCT s.srcip) AS attacking_sources\n",
+        "FROM cyber_lakehouse.gold.predictions p\n",
+        "JOIN cyber_lakehouse.silver.traffic_clean s USING (flow_hash)\n",
+        "WHERE p.pred_is_attack = 1"
+      ]
+    },
+    {
+      "name": "ds_alerts_by_hour",
+      "displayName": "Alerts by hour and family",
+      "queryLines": [
+        "SELECT\n",
+        "  DATE_TRUNC('HOUR', TIMESTAMP_SECONDS(s.stime)) AS hour,\n",
+        "  p.pred_attack_cat AS family,\n",
+        "  COUNT(*) AS alerts\n",
+        "FROM cyber_lakehouse.gold.predictions p\n",
+        "JOIN cyber_lakehouse.silver.traffic_clean s USING (flow_hash)\n",
+        "WHERE p.pred_is_attack = 1\n",
+        "GROUP BY 1, 2"
+      ]
+    },
+    {
+      "name": "ds_alerts_by_family",
+      "displayName": "Alerts by family",
+      "queryLines": [
+        "SELECT pred_attack_cat AS family, COUNT(*) AS alerts\n",
+        "FROM cyber_lakehouse.gold.predictions\n",
+        "WHERE pred_is_attack = 1\n",
+        "GROUP BY 1"
+      ]
+    },
+    {
+      "name": "ds_top_targets",
+      "displayName": "Most-targeted hosts",
+      "queryLines": [
+        "SELECT\n",
+        "  s.dstip AS host,\n",
+        "  COUNT(*) AS alerts,\n",
+        "  CONCAT_WS(', ', SORT_ARRAY(COLLECT_SET(p.pred_attack_cat))) AS families\n",
+        "FROM cyber_lakehouse.gold.predictions p\n",
+        "JOIN cyber_lakehouse.silver.traffic_clean s USING (flow_hash)\n",
+        "WHERE p.pred_is_attack = 1\n",
+        "GROUP BY s.dstip\n",
+        "ORDER BY alerts DESC\n",
+        "LIMIT 10"
+      ]
+    },
+    {
+      "name": "ds_top_alerts",
+      "displayName": "Highest-confidence alerts",
+      "queryLines": [
+        "SELECT\n",
+        "  TIMESTAMP_SECONDS(s.stime) AS flow_start,\n",
+        "  s.srcip, s.sport, s.dstip, s.dsport, s.proto, s.service,\n",
+        "  p.pred_attack_cat AS family,\n",
+        "  ROUND(p.pred_proba, 4) AS attack_probability\n",
+        "FROM cyber_lakehouse.gold.predictions p\n",
+        "JOIN cyber_lakehouse.silver.traffic_clean s USING (flow_hash)\n",
+        "WHERE p.pred_is_attack = 1\n",
+        "ORDER BY p.pred_proba DESC, s.stime\n",
+        "LIMIT 100"
+      ]
+    },
+    {
+      "name": "ds_selected_model",
+      "displayName": "Selected alert model",
+      "queryLines": [
+        "SELECT\n",
+        "  model,\n",
+        "  threshold,\n",
+        "  ROUND(100 * test_precision, 1) AS precision_pct,\n",
+        "  ROUND(100 * test_recall, 1) AS recall_pct,\n",
+        "  ROUND(test_f1, 3) AS f1\n",
+        "FROM cyber_lakehouse.gold.model_metrics\n",
+        "WHERE selected"
+      ]
+    },
+    {
+      "name": "ds_model_metrics",
+      "displayName": "Binary model comparison",
+      "queryLines": [
+        "SELECT\n",
+        "  model,\n",
+        "  selected,\n",
+        "  ROUND(threshold, 3) AS threshold,\n",
+        "  ROUND(val_precision, 4) AS val_precision,\n",
+        "  ROUND(test_precision, 4) AS test_precision,\n",
+        "  ROUND(test_recall, 4) AS test_recall,\n",
+        "  ROUND(test_f1, 4) AS test_f1,\n",
+        "  ROUND(test_roc_auc, 4) AS test_roc_auc,\n",
+        "  ROUND(test_f1_at_0_5, 4) AS test_f1_at_0_5\n",
+        "FROM cyber_lakehouse.gold.model_metrics\n",
+        "ORDER BY val_precision DESC"
+      ]
+    },
+    {
+      "name": "ds_family_metrics",
+      "displayName": "Family model comparison",
+      "queryLines": [
+        "SELECT\n",
+        "  model,\n",
+        "  selected,\n",
+        "  ROUND(val_macro_f1, 4) AS val_macro_f1,\n",
+        "  ROUND(test_macro_f1, 4) AS test_macro_f1,\n",
+        "  ROUND(test_accuracy, 4) AS test_accuracy\n",
+        "FROM cyber_lakehouse.gold.family_model_metrics\n",
+        "ORDER BY val_macro_f1 DESC"
+      ]
+    },
+    {
+      "name": "ds_quality_latest",
+      "displayName": "Latest data-quality run",
+      "queryLines": [
+        "SELECT check_name, layer, status, violations, description, run_ts\n",
+        "FROM cyber_lakehouse.gold.quality_results\n",
+        "WHERE run_ts = (SELECT MAX(run_ts) FROM cyber_lakehouse.gold.quality_results)\n",
+        "ORDER BY CASE status WHEN 'fail' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, layer, check_name"
+      ]
+    },
+    {
+      "name": "ds_quality_summary",
+      "displayName": "Data-quality summary",
+      "queryLines": [
+        "SELECT\n",
+        "  SUM(CASE WHEN status = 'pass' THEN 1 ELSE 0 END) AS checks_passing,\n",
+        "  SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END) AS checks_failing,\n",
+        "  MAX(run_ts) AS last_run\n",
+        "FROM cyber_lakehouse.gold.quality_results\n",
+        "WHERE run_ts = (SELECT MAX(run_ts) FROM cyber_lakehouse.gold.quality_results)"
+      ]
+    },
+    {
+      "name": "ds_quality_history",
+      "displayName": "Data-quality history",
+      "queryLines": [
+        "SELECT run_ts, status, COUNT(*) AS checks\n",
+        "FROM cyber_lakehouse.gold.quality_results\n",
+        "GROUP BY run_ts, status"
+      ]
+    },
+    {
+      "name": "ds_ingestion",
+      "displayName": "Rows ingested per micro-batch",
+      "queryLines": [
+        "SELECT b.ingest_ts AS batch, 'raw rows (bronze)' AS series, COUNT(*) AS rows\n",
+        "FROM cyber_lakehouse.bronze.traffic b\n",
+        "GROUP BY b.ingest_ts\n",
+        "UNION ALL\n",
+        "SELECT s.ingest_ts, 'new unique flows (silver)', COUNT(*)\n",
+        "FROM cyber_lakehouse.silver.traffic_clean s\n",
+        "GROUP BY s.ingest_ts"
+      ]
+    },
+    {
+      "name": "ds_layer_counts",
+      "displayName": "Rows per layer",
+      "queryLines": [
+        "SELECT 'bronze' AS layer, 1 AS ord, COUNT(*) AS rows FROM cyber_lakehouse.bronze.traffic\n",
+        "UNION ALL SELECT 'silver', 2, COUNT(*) FROM cyber_lakehouse.silver.traffic_clean\n",
+        "UNION ALL SELECT 'gold', 3, COUNT(*) FROM cyber_lakehouse.gold.features\n",
+        "UNION ALL SELECT 'predictions', 4, COUNT(*) FROM cyber_lakehouse.gold.predictions"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Threat overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "txt_overview",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Network intrusion monitor",
+                "Every UNSW-NB15 flow is scored by the alert model at its validation-tuned threshold (≥95% recall) and labeled with an attack family. Counts cover the whole dataset; model quality is on the **Model quality** page."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_flows",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(flows)",
+                      "expression": "SUM(`flows`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(flows)",
+                  "displayName": "Flows analyzed"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Flows analyzed"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_alerts",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(alerts)",
+                  "displayName": "Alerts raised"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alerts raised"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_alert_rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpis",
+                  "fields": [
+                    {
+                      "name": "max(alert_rate_pct)",
+                      "expression": "MAX(`alert_rate_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(alert_rate_pct)",
+                  "displayName": "Alert rate (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alert rate (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_hosts",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_alert_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(targeted_hosts)",
+                      "expression": "SUM(`targeted_hosts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(targeted_hosts)",
+                  "displayName": "Hosts targeted by alerts"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hosts targeted by alerts"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_sources",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_alert_kpis",
+                  "fields": [
+                    {
+                      "name": "sum(attacking_sources)",
+                      "expression": "SUM(`attacking_sources`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(attacking_sources)",
+                  "displayName": "Source IPs behind alerts"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Source IPs behind alerts"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_alerts_time",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_alerts_by_hour",
+                  "fields": [
+                    {
+                      "name": "hour",
+                      "expression": "`hour`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    },
+                    {
+                      "name": "family",
+                      "expression": "`family`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "hour",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Flow start (hour)"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                },
+                "color": {
+                  "fieldName": "family",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Family"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alerts over time by attack family",
+                "showDescription": true,
+                "description": "UNSW-NB15 was captured in two sessions (Jan 22 and Feb 18, 2015)."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_alerts_family",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_alerts_by_family",
+                  "fields": [
+                    {
+                      "name": "family",
+                      "expression": "`family`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "family",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Family"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alerts by attack family"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_top_targets",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_top_targets",
+                  "fields": [
+                    {
+                      "name": "host",
+                      "expression": "`host`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "host",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Destination host"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Most-targeted hosts (top 10)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 15,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "t_top_alerts",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_top_alerts",
+                  "fields": [
+                    {
+                      "name": "flow_start",
+                      "expression": "`flow_start`"
+                    },
+                    {
+                      "name": "srcip",
+                      "expression": "`srcip`"
+                    },
+                    {
+                      "name": "sport",
+                      "expression": "`sport`"
+                    },
+                    {
+                      "name": "dstip",
+                      "expression": "`dstip`"
+                    },
+                    {
+                      "name": "dsport",
+                      "expression": "`dsport`"
+                    },
+                    {
+                      "name": "proto",
+                      "expression": "`proto`"
+                    },
+                    {
+                      "name": "service",
+                      "expression": "`service`"
+                    },
+                    {
+                      "name": "family",
+                      "expression": "`family`"
+                    },
+                    {
+                      "name": "attack_probability",
+                      "expression": "`attack_probability`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "flow_start",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "datetime",
+                    "displayAs": "datetime",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Flow start",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Flow start",
+                    "dateTimeFormat": "YYYY-MM-DD HH:mm:ss"
+                  },
+                  {
+                    "fieldName": "srcip",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Source IP",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Source IP"
+                  },
+                  {
+                    "fieldName": "sport",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Src port",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Src port"
+                  },
+                  {
+                    "fieldName": "dstip",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Destination IP",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Destination IP"
+                  },
+                  {
+                    "fieldName": "dsport",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 4,
+                    "title": "Dst port",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Dst port"
+                  },
+                  {
+                    "fieldName": "proto",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 5,
+                    "title": "Protocol",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Protocol"
+                  },
+                  {
+                    "fieldName": "service",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 6,
+                    "title": "Service",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Service"
+                  },
+                  {
+                    "fieldName": "family",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 7,
+                    "title": "Predicted family",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Predicted family"
+                  },
+                  {
+                    "fieldName": "attack_probability",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 8,
+                    "title": "Attack probability",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Attack probability"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Highest-confidence alerts (top 100)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 6,
+            "height": 9
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "model",
+      "displayName": "Model quality",
+      "layout": [
+        {
+          "widget": {
+            "name": "txt_model",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Model quality",
+                "All numbers below are on the held-out **test split** (20% of a stratified sample), which was never used to choose a threshold or a model. The alert threshold is the highest-precision one that still catches ≥95% of attacks on the validation split."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_threshold",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_selected_model",
+                  "fields": [
+                    {
+                      "name": "max(threshold)",
+                      "expression": "MAX(`threshold`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(threshold)",
+                  "displayName": "Alert threshold"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alert threshold"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_precision",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_selected_model",
+                  "fields": [
+                    {
+                      "name": "max(precision_pct)",
+                      "expression": "MAX(`precision_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(precision_pct)",
+                  "displayName": "Precision (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Precision (%)",
+                "showDescription": true,
+                "description": "Share of alerts that are real attacks"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_recall",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_selected_model",
+                  "fields": [
+                    {
+                      "name": "max(recall_pct)",
+                      "expression": "MAX(`recall_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(recall_pct)",
+                  "displayName": "Recall (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Recall (%)",
+                "showDescription": true,
+                "description": "Share of attacks that raise an alert"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "t_model_metrics",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_model_metrics",
+                  "fields": [
+                    {
+                      "name": "model",
+                      "expression": "`model`"
+                    },
+                    {
+                      "name": "selected",
+                      "expression": "`selected`"
+                    },
+                    {
+                      "name": "threshold",
+                      "expression": "`threshold`"
+                    },
+                    {
+                      "name": "val_precision",
+                      "expression": "`val_precision`"
+                    },
+                    {
+                      "name": "test_precision",
+                      "expression": "`test_precision`"
+                    },
+                    {
+                      "name": "test_recall",
+                      "expression": "`test_recall`"
+                    },
+                    {
+                      "name": "test_f1",
+                      "expression": "`test_f1`"
+                    },
+                    {
+                      "name": "test_roc_auc",
+                      "expression": "`test_roc_auc`"
+                    },
+                    {
+                      "name": "test_f1_at_0_5",
+                      "expression": "`test_f1_at_0_5`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "model",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Model",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Model"
+                  },
+                  {
+                    "fieldName": "selected",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "boolean",
+                    "displayAs": "boolean",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Selected",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Selected"
+                  },
+                  {
+                    "fieldName": "threshold",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Threshold",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Threshold"
+                  },
+                  {
+                    "fieldName": "val_precision",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Val precision",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Val precision"
+                  },
+                  {
+                    "fieldName": "test_precision",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 4,
+                    "title": "Test precision",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test precision"
+                  },
+                  {
+                    "fieldName": "test_recall",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 5,
+                    "title": "Test recall",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test recall"
+                  },
+                  {
+                    "fieldName": "test_f1",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 6,
+                    "title": "Test F1",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test F1"
+                  },
+                  {
+                    "fieldName": "test_roc_auc",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 7,
+                    "title": "Test ROC-AUC",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test ROC-AUC"
+                  },
+                  {
+                    "fieldName": "test_f1_at_0_5",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 8,
+                    "title": "Test F1 at 0.5",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test F1 at 0.5"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Alert models (binary): tuned threshold vs. the default 0.5"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "t_family_metrics",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_family_metrics",
+                  "fields": [
+                    {
+                      "name": "model",
+                      "expression": "`model`"
+                    },
+                    {
+                      "name": "selected",
+                      "expression": "`selected`"
+                    },
+                    {
+                      "name": "val_macro_f1",
+                      "expression": "`val_macro_f1`"
+                    },
+                    {
+                      "name": "test_macro_f1",
+                      "expression": "`test_macro_f1`"
+                    },
+                    {
+                      "name": "test_accuracy",
+                      "expression": "`test_accuracy`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "model",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Model",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Model"
+                  },
+                  {
+                    "fieldName": "selected",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "boolean",
+                    "displayAs": "boolean",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Selected",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Selected"
+                  },
+                  {
+                    "fieldName": "val_macro_f1",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Val macro-F1",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Val macro-F1"
+                  },
+                  {
+                    "fieldName": "test_macro_f1",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Test macro-F1",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test macro-F1"
+                  },
+                  {
+                    "fieldName": "test_accuracy",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "float",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 4,
+                    "title": "Test accuracy",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Test accuracy"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Attack-family models (10 classes)",
+                "showDescription": true,
+                "description": "Accuracy is dominated by benign traffic; macro-F1 weights every family equally."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "health",
+      "displayName": "Pipeline health",
+      "layout": [
+        {
+          "widget": {
+            "name": "txt_health",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Pipeline health",
+                "Data-quality checks run at the end of every pipeline run and are appended to `gold.quality_results`; a failing check fails the Workflow. Ingestion is incremental: each micro-batch adds raw rows to bronze, and only flows not seen before become new rows in silver."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_checks_pass",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quality_summary",
+                  "fields": [
+                    {
+                      "name": "sum(checks_passing)",
+                      "expression": "SUM(`checks_passing`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_passing)",
+                  "displayName": "Checks passing (latest run)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Checks passing (latest run)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_checks_fail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quality_summary",
+                  "fields": [
+                    {
+                      "name": "sum(checks_failing)",
+                      "expression": "SUM(`checks_failing`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(checks_failing)",
+                  "displayName": "Checks failing (latest run)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Checks failing (latest run)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "t_quality_latest",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quality_latest",
+                  "fields": [
+                    {
+                      "name": "check_name",
+                      "expression": "`check_name`"
+                    },
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "violations",
+                      "expression": "`violations`"
+                    },
+                    {
+                      "name": "description",
+                      "expression": "`description`"
+                    },
+                    {
+                      "name": "run_ts",
+                      "expression": "`run_ts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "check_name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Check",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Check"
+                  },
+                  {
+                    "fieldName": "layer",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Layer",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Layer"
+                  },
+                  {
+                    "fieldName": "status",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Status",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "violations",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Violations",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Violations"
+                  },
+                  {
+                    "fieldName": "description",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 4,
+                    "title": "What it checks",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "What it checks"
+                  },
+                  {
+                    "fieldName": "run_ts",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "datetime",
+                    "displayAs": "datetime",
+                    "visible": true,
+                    "order": 5,
+                    "title": "Run time",
+                    "allowSearch": false,
+                    "alignContent": "right",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Run time",
+                    "dateTimeFormat": "YYYY-MM-DD HH:mm:ss"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Latest data-quality run"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_quality_history",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_quality_history",
+                  "fields": [
+                    {
+                      "name": "run_ts",
+                      "expression": "`run_ts`"
+                    },
+                    {
+                      "name": "sum(checks)",
+                      "expression": "SUM(`checks`)"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "run_ts",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Run"
+                },
+                "y": {
+                  "fieldName": "sum(checks)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Checks"
+                },
+                "color": {
+                  "fieldName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Status"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Check results per run"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_ingestion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ingestion",
+                  "fields": [
+                    {
+                      "name": "batch",
+                      "expression": "`batch`"
+                    },
+                    {
+                      "name": "sum(rows)",
+                      "expression": "SUM(`rows`)"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "batch",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Micro-batch"
+                },
+                "y": {
+                  "fieldName": "sum(rows)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Rows"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rows per micro-batch: raw vs. new unique flows",
+                "showDescription": true,
+                "description": "The gap between the lines is duplicates removed by the insert-only MERGE."
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_layers",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_layer_counts",
+                  "fields": [
+                    {
+                      "name": "layer",
+                      "expression": "`layer`"
+                    },
+                    {
+                      "name": "sum(rows)",
+                      "expression": "SUM(`rows`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "layer",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Layer"
+                },
+                "y": {
+                  "fieldName": "sum(rows)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Rows"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rows per layer"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ]
+}
