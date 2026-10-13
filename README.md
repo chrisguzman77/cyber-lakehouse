@@ -123,7 +123,7 @@ The replay script splits the raw CSVs into chunk files and moves the next N into
 ./scripts/run_job.sh src/jobs/01_ingest_bronze.py        # new landing files → Bronze (append)
 ./scripts/run_job.sh src/jobs/02_clean_silver.py         # new Bronze rows → Silver (dedupe + MERGE)
 ./scripts/run_job.sh src/jobs/03_build_gold_features.py  # new Silver rows → Gold features + analytics
-./scripts/run_job.sh src/jobs/05_score_predictions.py    # new Gold rows → predictions (skips if no model yet)
+./scripts/run_job.sh src/jobs/05_score_predictions.py    # new Gold rows → predictions (skips until training has run)
 ```
 Each job is a checkpointed stream with an `availableNow` trigger: it processes everything new since its last run, then stops. Repeat steps 2–3 as often as you like; with everything released, Silver holds 2,013,620 unique flows. (Windows: `.\run_spark_job.ps1 <job>` is the PowerShell equivalent.)
 

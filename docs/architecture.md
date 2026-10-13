@@ -218,9 +218,11 @@ The development machine has 8 GB RAM. Stream readers cap micro-batches at
 - **Replay rename atomicity on UC Volumes** (FUSE) is not guaranteed by the
   platform; in practice Auto Loader never read a partial chunk (counts were
   exact across all runs).
-- **A model left over from an earlier deployment bypasses the "no model yet"
-  check** in scoring, which then fails because `gold.freq_encodings` doesn't
-  exist yet. Run the training Workflow first after upgrading.
+- After upgrading an existing deployment, run the training Workflow before
+  expecting predictions: scoring skips until both a model and its frozen
+  encodings exist. (The first Databricks run failed here because a model from
+  the batch-era deployment existed without encodings; the check now requires
+  both.)
 - `run_spark_job.ps1` does not forward extra arguments (e.g. `--full_refresh`).
 
 ## 10. Roadmap

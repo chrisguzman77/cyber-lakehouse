@@ -21,8 +21,11 @@ Two orchestration units:
 
 `--full_refresh` / `full_refresh=true` drops the predictions table and its
 checkpoint so the Change Data Feed stream re-snapshots gold and every flow is
-rescored with the new model. Scoring exits cleanly ("no model yet") when no
-model exists, so the pipeline can run before the first training.
+rescored with the new model. Scoring exits cleanly unless both the model and
+its frozen encodings table exist, so the pipeline can run before the first
+training — including right after upgrading from the batch pipeline, whose
+leftover model has no encodings (this failed on the first Databricks run
+before the check covered both).
 
 ## Alternatives considered
 

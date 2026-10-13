@@ -54,7 +54,9 @@ rows.
 ## Run order
 
 1. Run `cyber-lakehouse-pipeline` once. The scoring task exits early with
-   "No model yet" — expected before the first training.
+   "No trained model + frequency encodings yet" — expected before the first
+   training (including when upgrading from the batch pipeline, whose old model
+   has no encodings table).
 2. Run `cyber-lakehouse-train` to train and score everything ingested so far.
 3. Run `cyber-lakehouse-pipeline` again (as often as you like): new chunks flow
    through every layer and only the new flows get scored.

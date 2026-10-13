@@ -42,8 +42,10 @@ def main() -> None:
     ensure_dirs()
     args = parse_args()
 
-    if not Path(args.model_path).exists():
-        print(f"[SKIP] No model at {args.model_path} yet; run 04_train_model first.")
+    # Scoring needs both training outputs; a model left over from an older
+    # deployment without its frozen encodings must not be used.
+    if not (Path(args.model_path).exists() and Path(args.encodings_path, "_delta_log").exists()):
+        print("[SKIP] No trained model + frequency encodings yet; run 04_train_model first.")
         return
 
     if args.full_refresh:

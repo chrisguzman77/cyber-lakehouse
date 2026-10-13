@@ -45,8 +45,12 @@ FULL_REFRESH = dbutils.widgets.get("full_refresh").lower() == "true"  # noqa: F8
 
 # COMMAND ----------
 
-if not os.path.exists(MODEL_PATH):
-    dbutils.notebook.exit("No model yet; run the train workflow (notebook 04) first.")  # noqa: F821
+# Scoring needs both training outputs; a model left over from an older
+# deployment without its frozen encodings must not be used.
+if not (os.path.exists(MODEL_PATH) and spark.catalog.tableExists(ENCODINGS_TABLE)):  # noqa: F821
+    dbutils.notebook.exit(  # noqa: F821
+        "No trained model + frequency encodings yet; run the train workflow (notebook 04) first."
+    )
 
 if FULL_REFRESH:
     spark.sql(f"DROP TABLE IF EXISTS {PREDICTIONS_TABLE}")  # noqa: F821
