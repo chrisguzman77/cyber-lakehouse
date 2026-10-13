@@ -228,9 +228,17 @@ The same pipeline runs on Databricks: serverless compute, Auto Loader over a lan
 
 Verified on Databricks (2026-10-12): bronze 2,540,047; silver = gold = predictions = 2,013,620; 0 duplicate `flow_hash` values — identical to the local run.
 
-**Experiment tracking & model registry** — training logs each model as an MLflow run (params + accuracy/precision/recall/F1/ROC-AUC), and the best model is registered in Unity Catalog as `cyber_lakehouse.gold.attack_classifier`:
+**Experiment tracking & model registry** — training logs every candidate as an MLflow run: binary runs with their validation-tuned threshold, validation precision, and test metrics; family runs with validation and test macro-F1. The best of each is registered in Unity Catalog as `cyber_lakehouse.gold.attack_classifier` and `cyber_lakehouse.gold.attack_family_classifier`.
 
-![MLflow run comparison](docs/img/mlflow-compare.png)
+![MLflow binary runs: each model's tuned threshold, validation precision, and test precision/recall/F1](docs/img/mlflow-binary-runs.png)
+
+![MLflow attack-family runs: validation and test macro-F1](docs/img/mlflow-family-runs.png)
+
+On Databricks (300k-row training sample) the selected alert model is again **HistGradientBoosting**: threshold 0.880, test precision **0.824**, recall **0.953**, F1 **0.884**, so the 95% recall floor held on the test set as well. For attack families, HistGradientBoosting edged out RandomForest on validation macro-F1 this time (0.615 vs 0.571; test macro-F1 0.648). The local run picked RandomForest. With so few examples of the rarest families, which model wins depends on the sample, so the two runs agree on the pattern rather than on a single winner.
+
+**Scored predictions** — every flow gets an alert decision at the tuned threshold and an attack-family label. Of 2,013,620 flows, 94,913 raise an alert (4.7%, close to the ~4% true attack share); flows labeled `normal` almost never alert (194), while those labeled generic, exploits, reconnaissance, or worms almost always do:
+
+![Predictions by attack family: flows and alerts per family](docs/img/databricks-predicted-families.png)
 
 **Unity Catalog** — all layers live as governed tables/volumes under one catalog:
 

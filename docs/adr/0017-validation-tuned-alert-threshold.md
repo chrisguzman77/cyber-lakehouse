@@ -44,6 +44,9 @@ because the same data was used to pick the model and to report it.
   ~1 in 6, at the cost of missing ~5.5% of attacks instead of ~1%.
 - Test recall (0.945) lands just under the 0.95 validation floor, as expected
   when a threshold tuned on one sample is applied to another.
+- Reproduced on Databricks (300k-row sample, 2026-10-13): HistGradientBoosting
+  selected again at threshold 0.880, test precision 0.824, recall 0.953,
+  F1 0.884.
 - Training data shrinks from 80% to 60% of the sample to fund the validation
   split.
 - The threshold is now a model artifact that must stay in sync with the
