@@ -24,8 +24,8 @@
       ]
     },
     {
-      "name": "ds_alerts_by_hour",
-      "displayName": "Alerts by hour and family",
+      "name": "ds_alerts_session1",
+      "displayName": "Alerts by hour, capture session 1",
       "queryLines": [
         "SELECT\n",
         "  DATE_TRUNC('HOUR', TIMESTAMP_SECONDS(s.stime)) AS hour,\n",
@@ -33,7 +33,21 @@
         "  COUNT(*) AS alerts\n",
         "FROM cyber_lakehouse.gold.predictions p\n",
         "JOIN cyber_lakehouse.silver.traffic_clean s USING (flow_hash)\n",
-        "WHERE p.pred_is_attack = 1\n",
+        "WHERE p.pred_is_attack = 1 AND TIMESTAMP_SECONDS(s.stime) < TIMESTAMP'2015-02-01'\n",
+        "GROUP BY 1, 2"
+      ]
+    },
+    {
+      "name": "ds_alerts_session2",
+      "displayName": "Alerts by hour, capture session 2",
+      "queryLines": [
+        "SELECT\n",
+        "  DATE_TRUNC('HOUR', TIMESTAMP_SECONDS(s.stime)) AS hour,\n",
+        "  p.pred_attack_cat AS family,\n",
+        "  COUNT(*) AS alerts\n",
+        "FROM cyber_lakehouse.gold.predictions p\n",
+        "JOIN cyber_lakehouse.silver.traffic_clean s USING (flow_hash)\n",
+        "WHERE p.pred_is_attack = 1 AND TIMESTAMP_SECONDS(s.stime) >= TIMESTAMP'2015-02-01'\n",
         "GROUP BY 1, 2"
       ]
     },
@@ -151,32 +165,52 @@
       "name": "ds_quality_history",
       "displayName": "Data-quality history",
       "queryLines": [
-        "SELECT run_ts, status, COUNT(*) AS checks\n",
+        "SELECT\n",
+        "  run_ts,\n",
+        "  SUM(CASE WHEN status = 'pass' THEN 1 ELSE 0 END) AS passed,\n",
+        "  SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END) AS failed,\n",
+        "  SUM(CASE WHEN status = 'missing' THEN 1 ELSE 0 END) AS missing\n",
         "FROM cyber_lakehouse.gold.quality_results\n",
-        "GROUP BY run_ts, status"
+        "GROUP BY run_ts\n",
+        "ORDER BY run_ts DESC\n",
+        "LIMIT 20"
       ]
     },
     {
       "name": "ds_ingestion",
-      "displayName": "Rows ingested per micro-batch",
+      "displayName": "Rows per micro-batch",
       "queryLines": [
-        "SELECT b.ingest_ts AS batch, 'raw rows (bronze)' AS series, COUNT(*) AS rows\n",
-        "FROM cyber_lakehouse.bronze.traffic b\n",
-        "GROUP BY b.ingest_ts\n",
-        "UNION ALL\n",
-        "SELECT s.ingest_ts, 'new unique flows (silver)', COUNT(*)\n",
-        "FROM cyber_lakehouse.silver.traffic_clean s\n",
-        "GROUP BY s.ingest_ts"
+        "SELECT\n",
+        "  b.ingest_ts AS batch,\n",
+        "  b.raw_rows,\n",
+        "  COALESCE(s.new_flows, 0) AS new_unique_flows,\n",
+        "  b.raw_rows - COALESCE(s.new_flows, 0) AS duplicates_or_rejected\n",
+        "FROM (SELECT ingest_ts, COUNT(*) AS raw_rows FROM cyber_lakehouse.bronze.traffic GROUP BY ingest_ts) b\n",
+        "LEFT JOIN (SELECT ingest_ts, COUNT(*) AS new_flows FROM cyber_lakehouse.silver.traffic_clean GROUP BY ingest_ts) s\n",
+        "  USING (ingest_ts)\n",
+        "ORDER BY batch"
+      ]
+    },
+    {
+      "name": "ds_ingestion_totals",
+      "displayName": "Ingestion totals",
+      "queryLines": [
+        "SELECT\n",
+        "  b.raw_rows,\n",
+        "  s.unique_flows,\n",
+        "  ROUND(100 * (b.raw_rows - s.unique_flows) / b.raw_rows, 1) AS removed_pct\n",
+        "FROM (SELECT COUNT(*) AS raw_rows FROM cyber_lakehouse.bronze.traffic) b\n",
+        "CROSS JOIN (SELECT COUNT(*) AS unique_flows FROM cyber_lakehouse.silver.traffic_clean) s"
       ]
     },
     {
       "name": "ds_layer_counts",
       "displayName": "Rows per layer",
       "queryLines": [
-        "SELECT 'bronze' AS layer, 1 AS ord, COUNT(*) AS rows FROM cyber_lakehouse.bronze.traffic\n",
-        "UNION ALL SELECT 'silver', 2, COUNT(*) FROM cyber_lakehouse.silver.traffic_clean\n",
-        "UNION ALL SELECT 'gold', 3, COUNT(*) FROM cyber_lakehouse.gold.features\n",
-        "UNION ALL SELECT 'predictions', 4, COUNT(*) FROM cyber_lakehouse.gold.predictions"
+        "SELECT '1 bronze' AS layer, COUNT(*) AS rows FROM cyber_lakehouse.bronze.traffic\n",
+        "UNION ALL SELECT '2 silver', COUNT(*) FROM cyber_lakehouse.silver.traffic_clean\n",
+        "UNION ALL SELECT '3 gold', COUNT(*) FROM cyber_lakehouse.gold.features\n",
+        "UNION ALL SELECT '4 predictions', COUNT(*) FROM cyber_lakehouse.gold.predictions"
       ]
     }
   ],
@@ -190,7 +224,8 @@
             "name": "txt_overview",
             "multilineTextboxSpec": {
               "lines": [
-                "# Network intrusion monitor",
+                "# Network intrusion monitor\n",
+                "\n",
                 "Every UNSW-NB15 flow is scored by the alert model at its validation-tuned threshold (≥95% recall) and labeled with an attack family. Counts cover the whole dataset; model quality is on the **Model quality** page."
               ]
             }
@@ -404,12 +439,12 @@
         },
         {
           "widget": {
-            "name": "ch_alerts_time",
+            "name": "ch_alerts_s1",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds_alerts_by_hour",
+                  "datasetName": "ds_alerts_session1",
                   "fields": [
                     {
                       "name": "hour",
@@ -456,16 +491,79 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Alerts over time by attack family",
-                "showDescription": true,
-                "description": "UNSW-NB15 was captured in two sessions (Jan 22 and Feb 18, 2015)."
+                "title": "Alerts per hour by family: capture session 1 (Jan 22, 2015)"
               }
             }
           },
           "position": {
             "x": 0,
             "y": 8,
-            "width": 6,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ch_alerts_s2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_alerts_session2",
+                  "fields": [
+                    {
+                      "name": "hour",
+                      "expression": "`hour`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    },
+                    {
+                      "name": "family",
+                      "expression": "`family`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "hour",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Flow start (hour)"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                },
+                "color": {
+                  "fieldName": "family",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Family"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alerts per hour by family: capture session 2 (Feb 18, 2015)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
             "height": 7
           }
         },
@@ -880,7 +978,8 @@
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Attack probability"
+                    "displayName": "Attack probability",
+                    "numberFormat": "0.0000"
                   }
                 ]
               },
@@ -915,7 +1014,8 @@
             "name": "txt_model",
             "multilineTextboxSpec": {
               "lines": [
-                "# Model quality",
+                "# Model quality\n",
+                "\n",
                 "All numbers below are on the held-out **test split** (20% of a stratified sample), which was never used to choose a threshold or a model. The alert threshold is the highest-precision one that still catches ≥95% of attacks on the validation split."
               ]
             }
@@ -1180,12 +1280,13 @@
                     "order": 2,
                     "title": "Threshold",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Threshold"
+                    "displayName": "Threshold",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "val_precision",
@@ -1207,12 +1308,13 @@
                     "order": 3,
                     "title": "Val precision",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Val precision"
+                    "displayName": "Val precision",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_precision",
@@ -1234,12 +1336,13 @@
                     "order": 4,
                     "title": "Test precision",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test precision"
+                    "displayName": "Test precision",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_recall",
@@ -1261,12 +1364,13 @@
                     "order": 5,
                     "title": "Test recall",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test recall"
+                    "displayName": "Test recall",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_f1",
@@ -1288,12 +1392,13 @@
                     "order": 6,
                     "title": "Test F1",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test F1"
+                    "displayName": "Test F1",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_roc_auc",
@@ -1315,12 +1420,13 @@
                     "order": 7,
                     "title": "Test ROC-AUC",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test ROC-AUC"
+                    "displayName": "Test ROC-AUC",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_f1_at_0_5",
@@ -1342,12 +1448,13 @@
                     "order": 8,
                     "title": "Test F1 at 0.5",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test F1 at 0.5"
+                    "displayName": "Test F1 at 0.5",
+                    "numberFormat": "0.000"
                   }
                 ]
               },
@@ -1483,12 +1590,13 @@
                     "order": 2,
                     "title": "Val macro-F1",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Val macro-F1"
+                    "displayName": "Val macro-F1",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_macro_f1",
@@ -1510,12 +1618,13 @@
                     "order": 3,
                     "title": "Test macro-F1",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test macro-F1"
+                    "displayName": "Test macro-F1",
+                    "numberFormat": "0.000"
                   },
                   {
                     "fieldName": "test_accuracy",
@@ -1537,12 +1646,13 @@
                     "order": 4,
                     "title": "Test accuracy",
                     "allowSearch": false,
-                    "alignContent": "right",
+                    "alignContent": "left",
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
                     "preserveWhitespace": false,
-                    "displayName": "Test accuracy"
+                    "displayName": "Test accuracy",
+                    "numberFormat": "0.000"
                   }
                 ]
               },
@@ -1579,7 +1689,8 @@
             "name": "txt_health",
             "multilineTextboxSpec": {
               "lines": [
-                "# Pipeline health",
+                "# Pipeline health\n",
+                "\n",
                 "Data-quality checks run at the end of every pipeline run and are appended to `gold.quality_results`; a failing check fails the Workflow. Ingestion is incremental: each micro-batch adds raw rows to bronze, and only flows not seen before become new rows in silver."
               ]
             }
@@ -1900,7 +2011,7 @@
         },
         {
           "widget": {
-            "name": "ch_quality_history",
+            "name": "t_quality_history",
             "queries": [
               {
                 "name": "main_query",
@@ -1912,60 +2023,160 @@
                       "expression": "`run_ts`"
                     },
                     {
-                      "name": "sum(checks)",
-                      "expression": "SUM(`checks`)"
+                      "name": "passed",
+                      "expression": "`passed`"
                     },
                     {
-                      "name": "status",
-                      "expression": "`status`"
+                      "name": "failed",
+                      "expression": "`failed`"
+                    },
+                    {
+                      "name": "missing",
+                      "expression": "`missing`"
                     }
                   ],
-                  "disaggregated": false
+                  "disaggregated": true
                 }
               }
             ],
             "spec": {
-              "version": 3,
-              "widgetType": "bar",
+              "version": 1,
+              "widgetType": "table",
               "encodings": {
-                "x": {
-                  "fieldName": "run_ts",
-                  "scale": {
-                    "type": "temporal"
+                "columns": [
+                  {
+                    "fieldName": "run_ts",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "datetime",
+                    "displayAs": "datetime",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Run time",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Run time",
+                    "dateTimeFormat": "YYYY-MM-DD HH:mm:ss"
                   },
-                  "displayName": "Run"
-                },
-                "y": {
-                  "fieldName": "sum(checks)",
-                  "scale": {
-                    "type": "quantitative"
+                  {
+                    "fieldName": "passed",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Passed",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Passed"
                   },
-                  "displayName": "Checks"
-                },
-                "color": {
-                  "fieldName": "status",
-                  "scale": {
-                    "type": "categorical"
+                  {
+                    "fieldName": "failed",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 2,
+                    "title": "Failed",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Failed"
                   },
-                  "displayName": "Status"
-                }
+                  {
+                    "fieldName": "missing",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Missing",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Missing"
+                  }
+                ]
               },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
               "frame": {
                 "showTitle": true,
-                "title": "Check results per run"
+                "title": "Recent quality runs"
               }
             }
           },
           "position": {
             "x": 0,
             "y": 13,
-            "width": 3,
+            "width": 2,
             "height": 7
           }
         },
         {
           "widget": {
-            "name": "ch_ingestion",
+            "name": "t_ingestion",
             "queries": [
               {
                 "name": "main_query",
@@ -1977,12 +2188,171 @@
                       "expression": "`batch`"
                     },
                     {
-                      "name": "sum(rows)",
-                      "expression": "SUM(`rows`)"
+                      "name": "raw_rows",
+                      "expression": "`raw_rows`"
                     },
                     {
-                      "name": "series",
-                      "expression": "`series`"
+                      "name": "new_unique_flows",
+                      "expression": "`new_unique_flows`"
+                    },
+                    {
+                      "name": "duplicates_or_rejected",
+                      "expression": "`duplicates_or_rejected`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "batch",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "datetime",
+                    "displayAs": "datetime",
+                    "visible": true,
+                    "order": 0,
+                    "title": "Micro-batch",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Micro-batch",
+                    "dateTimeFormat": "YYYY-MM-DD HH:mm:ss"
+                  },
+                  {
+                    "fieldName": "raw_rows",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 1,
+                    "title": "Raw rows (bronze)",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Raw rows (bronze)"
+                  },
+                  {
+                    "fieldName": "new_unique_flows",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 2,
+                    "title": "New unique flows (silver)",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "New unique flows (silver)"
+                  },
+                  {
+                    "fieldName": "duplicates_or_rejected",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 3,
+                    "title": "Duplicates / rejected",
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "displayName": "Duplicates / rejected"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Rows per micro-batch",
+                "showDescription": true,
+                "description": "Raw rows land in bronze; only flows not seen before become new silver rows."
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 13,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c_raw_rows",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ingestion_totals",
+                  "fields": [
+                    {
+                      "name": "sum(raw_rows)",
+                      "expression": "SUM(`raw_rows`)"
                     }
                   ],
                   "disaggregated": false
@@ -1990,44 +2360,105 @@
               }
             ],
             "spec": {
-              "version": 3,
-              "widgetType": "line",
+              "version": 2,
+              "widgetType": "counter",
               "encodings": {
-                "x": {
-                  "fieldName": "batch",
-                  "scale": {
-                    "type": "temporal"
-                  },
-                  "displayName": "Micro-batch"
-                },
-                "y": {
-                  "fieldName": "sum(rows)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "Rows"
-                },
-                "color": {
-                  "fieldName": "series",
-                  "scale": {
-                    "type": "categorical"
-                  },
-                  "displayName": "Series"
+                "value": {
+                  "fieldName": "sum(raw_rows)",
+                  "displayName": "Raw rows ingested"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Rows per micro-batch: raw vs. new unique flows",
-                "showDescription": true,
-                "description": "The gap between the lines is duplicates removed by the insert-only MERGE."
+                "title": "Raw rows ingested"
               }
             }
           },
           "position": {
-            "x": 3,
-            "y": 13,
-            "width": 3,
-            "height": 7
+            "x": 0,
+            "y": 20,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_unique_flows",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ingestion_totals",
+                  "fields": [
+                    {
+                      "name": "sum(unique_flows)",
+                      "expression": "SUM(`unique_flows`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(unique_flows)",
+                  "displayName": "Unique flows kept"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unique flows kept"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 20,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "c_removed_pct",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ingestion_totals",
+                  "fields": [
+                    {
+                      "name": "max(removed_pct)",
+                      "expression": "MAX(`removed_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(removed_pct)",
+                  "displayName": "Duplicates / rejected (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Duplicates / rejected (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 20,
+            "width": 2,
+            "height": 3
           }
         },
         {
@@ -2079,7 +2510,7 @@
           },
           "position": {
             "x": 0,
-            "y": 20,
+            "y": 23,
             "width": 6,
             "height": 6
           }

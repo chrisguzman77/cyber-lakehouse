@@ -223,9 +223,9 @@ docker compose -f docker/docker-compose.yml exec spark \
 The same pipeline runs on Databricks: serverless compute, Auto Loader over a landing Volume, Unity Catalog managed Delta tables (`cyber_lakehouse.bronze/silver/gold`) with Change Data Feed, stream checkpoints in a UC Volume, and notebooks that import the shared `src/utils` modules from the repo's Git folder — so local and cloud deployments can't drift. It is split into two Workflows: `cyber-lakehouse-pipeline` (replay → bronze → silver → gold → incremental scoring → quality gate, run repeatedly) and `cyber-lakehouse-train` (train → full rescore, on demand). Setup guide and verification checklist: [`databricks/README.md`](databricks/README.md).
 
 **Dashboard** — [`databricks/dashboards/cyber_lakehouse.lvdash.json`](databricks/dashboards/cyber_lakehouse.lvdash.json) is a three-page Databricks AI/BI dashboard kept in version control:
-- **Threat overview:** alerts over time by attack family, most-targeted hosts, highest-confidence alerts
+- **Threat overview:** alerts per hour by attack family (one chart per capture session), alerts by family, most-targeted hosts, highest-confidence alerts
 - **Model quality:** the selected threshold, precision and recall, plus every candidate model. All numbers are from the test split only.
-- **Pipeline health:** latest data-quality results and their history, rows ingested per micro-batch vs. new unique flows, rows per layer
+- **Pipeline health:** latest data-quality results, recent quality runs, raw rows vs. new unique flows per micro-batch (and the share removed as duplicates), rows per layer
 
 **Incremental pipeline Workflow** — each run of `cyber-lakehouse-pipeline` delivers the next 3 chunks (~750k rows) and processes only those through every layer, in 2–3 minutes on serverless. The last run below had nothing new to deliver and left every table's row count unchanged:
 

@@ -16,15 +16,17 @@ writes, stay reproducible, and not overstate model quality.
 - A **Databricks AI/BI dashboard** stored in the repo as
   `databricks/dashboards/cyber_lakehouse.lvdash.json`. Inside the Git folder
   it appears as a dashboard; it can also be imported from file.
-- Three pages, 14 SQL datasets, 23 widgets:
+- Three pages, 16 SQL datasets, 27 widgets:
   - **Threat overview:** flows, alerts, alert rate, targeted hosts and
-    sources; alerts over time by family; alerts by family; most-targeted
+    sources; alerts per hour by family, one chart per capture session (a
+    single time axis would be a month of empty space); alerts by family; most-targeted
     hosts; the 100 highest-confidence alerts with their 5-tuple.
   - **Model quality:** the selected threshold, test precision and recall;
     every binary and family candidate from `gold.model_metrics` /
     `gold.family_model_metrics`.
-  - **Pipeline health:** latest data-quality results, pass/fail per run,
-    raw rows vs. new unique flows per micro-batch, rows per layer.
+  - **Pipeline health:** latest data-quality results; recent runs (passed /
+    failed / missing); raw rows vs. new unique flows per micro-batch, with
+    totals and the share removed; rows per layer.
 - **Model quality comes only from the saved test-split metrics.** The
   dashboard does not compare predictions with true labels across all flows,
   because that population includes the training sample and would overstate
@@ -46,8 +48,11 @@ writes, stay reproducible, and not overstate model quality.
   made in the UI should be exported back over the `.lvdash.json` file.
 - It depends on tables from both Workflows: the model page needs a training
   run, the health page a run of `06_quality_checks`.
-- The overview's time axis spans the dataset's two capture sessions (Jan 22
-  and Feb 18, 2015), so it shows two clusters with a gap, which is noted on
-  the widget.
+- The first import (2026-10-13) worked but needed polish: headings ran into
+  their text, one time axis spanning both capture sessions was mostly empty,
+  numbers right-aligned under left-aligned headers and ROC-AUC 0.9988 rounded
+  to 1.00, and thin per-run charts were hard to read. Revised to per-session
+  charts, left-aligned 3-decimal model tables, and tables for run history and
+  micro-batches.
 - The file was written without access to the dashboard editor; if the import
   rejects a widget, the error names it and the fix is local to that widget.
