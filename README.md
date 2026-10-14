@@ -25,26 +25,37 @@ The system is fully containerized (Docker) and also runs on Databricks — see [
 ---
 
 ## Architecture
-```
-Raw CSVs (full UNSW-NB15, 4 files, 2,540,047 rows, headerless 49-col schema)
-   ↓  replay: 250k-row chunk files released over time (atomic rename)
-Landing (data/landing/incoming/)
-   ↓  Structured Streaming file source / Auto Loader, checkpointed, availableNow
-Bronze (raw append-only Delta, explicit StructType, ingest metadata)
-   ↓  stream → per-batch dedupe → insert-only MERGE on flow_hash
-Silver (cleaned Delta: label/category normalization, CSV-quirk fixes,
-        SHA-256 flow-identity dedupe → 2,013,620 unique flows; CDF on)
-   ↓  Change Data Feed inserts → insert-only MERGE
-Gold (row-wise ML feature table + analytics aggregates; CDF on)
-   ↓
-ML Training (stratified 500k sample, 60/20/20 train/val/test;
-             binary model + validation-tuned alert threshold,
-             10-class attack-family model;
-             freezes the frequency-encoding map → gold/freq_encodings)
-   ↓  Change Data Feed inserts → frozen encodings → mapInPandas → insert-only MERGE
-Predictions (Delta, every flow scored exactly once per model)
-   ↓  11 data-quality checks per run → gold.quality_results (failure fails the run)
-Dashboard (Databricks AI/BI: alerts, model quality, pipeline health)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+flowchart TD
+    raw[("Raw CSVs<br/>full UNSW-NB15: 4 files, 2,540,047 rows<br/>headerless 49-column schema")]
+    landing["Landing<br/>data/landing/incoming/"]
+    bronze[("Bronze<br/>raw append-only Delta<br/>explicit StructType + ingest metadata")]
+    silver[("Silver<br/>cleaned: label/category normalization, CSV-quirk fixes<br/>SHA-256 flow-identity dedupe → 2,013,620 unique flows<br/>CDF on")]
+    gold[("Gold<br/>row-wise ML feature table + analytics aggregates<br/>CDF on")]
+    train["ML training (on demand)<br/>stratified 500k sample, 60/20/20 train/val/test<br/>binary model + validation-tuned alert threshold<br/>10-class attack-family model"]
+    artifacts[("Models + frozen frequency encodings<br/>gold/freq_encodings")]
+    preds[("Predictions<br/>every flow scored exactly once per model")]
+    quality["Data-quality gate<br/>11 checks per run → gold.quality_results<br/>any failure fails the run"]
+    dash["Dashboard<br/>Databricks AI/BI: alerts, model quality, pipeline health"]
+
+    raw -->|"replay: 250k-row chunks<br/>released over time<br/>(atomic rename)"| landing
+    landing -->|"Structured Streaming<br/>or Auto Loader<br/>checkpointed, availableNow"| bronze
+    bronze -->|"per-batch dedupe<br/>insert-only MERGE<br/>on flow_hash"| silver
+    silver -->|"Change Data Feed inserts<br/>insert-only MERGE"| gold
+    gold --> train
+    train --> artifacts
+    gold -->|"Change Data Feed inserts<br/>frozen encodings<br/>mapInPandas scoring<br/>insert-only MERGE"| preds
+    artifacts -.->|"loaded at scoring"| preds
+    preds --> quality
+    quality --> dash
+
+    classDef bronze fill:#cd7f32,stroke:#8a5522,color:#000
+    classDef silver fill:#d9d9d9,stroke:#8c8c8c,color:#000
+    classDef gold fill:#f4c430,stroke:#b8901c,color:#000
+    class bronze bronze
+    class silver silver
+    class gold gold
 ```
 ---
 
