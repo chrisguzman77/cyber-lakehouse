@@ -100,6 +100,20 @@ Quick row counts per layer (JSON):
 Expected after all chunks are processed: bronze 2,540,047; silver, gold,
 predictions 2,013,620; all `*_dup_keys` 0.
 
+### Cross-dataset evaluation (optional, standalone)
+
+```bash
+bash scripts/fetch_cic.sh                              # CIC-IDS2017, 8 CSVs (~850 MB) → data/raw/cic/
+./scripts/run_job.sh src/jobs/evaluate_cross_dataset.py
+```
+
+Needs a built gold table. `fetch_cic.sh` downloads anonymously with
+`kagglehub`, so no Kaggle token is needed. The job trains a portable UNSW
+model, scores CIC with it, trains a CIC ceiling, prints a results table plus
+per-attack detection rates, and writes `reports/cross_dataset.json`
+(about 4–5 minutes; `--max_rows` sets the sample size per dataset, default
+500k). See [ADR-0021](adr/0021-cross-dataset-evaluation-on-portable-features.md).
+
 ## Verification
 
 | What | Command | Where |
@@ -155,3 +169,4 @@ Setup, Workflow definitions, and the verification checklist live in
 | `ModuleNotFoundError: src` inside `foreachBatch` on serverless | Batch function runs in a process without the Git folder on `sys.path` | Notebooks register `src.utils` modules with `cloudpickle.register_pickle_by_value`; keep new helpers in those modules. |
 | Windows: `--full_refresh` ignored | `run_spark_job.ps1` doesn't forward extra arguments | Use WSL/Git Bash with `scripts/run_job.sh`, or extend the script. |
 | Very slow first run of 02/03 | One huge micro-batch | Ensure `--max_bytes_per_trigger` is set (default 128m). |
+| Job crawls, log shows `Removing executor driver with no recent heartbeats` | Docker VM out of memory and swap (other containers running alongside Spark) | Stop other containers or raise Docker Desktop's memory; `docker restart cyber-spark` clears swap. Streams resume from their checkpoint, so just rerun. |

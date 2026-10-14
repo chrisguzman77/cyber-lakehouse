@@ -1,0 +1,379 @@
+{
+  "portable_features": [
+    "dur",
+    "sbytes",
+    "dbytes",
+    "spkts",
+    "dpkts",
+    "sintpkt",
+    "dintpkt",
+    "bytes_per_pkt_src",
+    "bytes_per_pkt_dst",
+    "byte_ratio_src_dst",
+    "pkt_ratio_src_dst",
+    "pkts_per_sec",
+    "sload",
+    "dload",
+    "load_asymmetry",
+    "log1p_sbytes",
+    "log1p_dbytes",
+    "log1p_dur",
+    "dur_bucket"
+  ],
+  "protocol": "60/20/20 split per dataset; threshold = highest validation precision at recall >= 0.95; transfer scored on the CIC test split",
+  "data": {
+    "unsw_gold_rows": 2013620,
+    "unsw_test_rows": 100070,
+    "cic": {
+      "rows_read": 2830743,
+      "rows_valid": 2830628,
+      "rows_unique": 1980056,
+      "rows_sampled": 500000
+    },
+    "cic_test_rows": 100000,
+    "cic_test_attack_share": 0.16536
+  },
+  "unsw_full_feature_reference": {
+    "model": "hist_gradient_boosting",
+    "threshold": 0.9118777938209169,
+    "test": {
+      "accuracy": 0.9903566539088029,
+      "precision": 0.8394366197183099,
+      "recall": 0.9453391898487067,
+      "f1": 0.8892459543211293,
+      "roc_auc": 0.998782915851446
+    }
+  },
+  "unsw_portable": {
+    "models": {
+      "random_forest": {
+        "threshold": 0.7670942747071997,
+        "validation": {
+          "precision": 0.7706879361914257,
+          "recall": 0.9500983284169124
+        },
+        "test_at_threshold": {
+          "accuracy": 0.9865793944239033,
+          "precision": 0.7720103813136354,
+          "recall": 0.950589970501475,
+          "f1": 0.8520436267489259,
+          "roc_auc": 0.9974425183537945
+        },
+        "test_at_0_5": {
+          "accuracy": 0.985230338762866,
+          "precision": 0.7360554137805323,
+          "recall": 0.9926253687315634,
+          "f1": 0.8453003977391669,
+          "roc_auc": 0.9974425183537945
+        },
+        "train_seconds": 21.94
+      },
+      "logistic_regression": {
+        "threshold": 0.33511850237846375,
+        "validation": {
+          "precision": 0.19288352130951192,
+          "recall": 0.9500983284169124
+        },
+        "test_at_threshold": {
+          "accuracy": 0.8356550414709704,
+          "precision": 0.1923344601312388,
+          "recall": 0.9510816125860374,
+          "f1": 0.3199636123056566,
+          "roc_auc": 0.9643395393761975
+        },
+        "test_at_0_5": {
+          "accuracy": 0.8707604676726292,
+          "precision": 0.22660827730833283,
+          "recall": 0.9031465093411996,
+          "f1": 0.362309550811104,
+          "roc_auc": 0.9643395393761975
+        },
+        "train_seconds": 9.77
+      },
+      "hist_gradient_boosting": {
+        "threshold": 0.9053927641380316,
+        "validation": {
+          "precision": 0.7952674897119342,
+          "recall": 0.9500983284169124
+        },
+        "test_at_threshold": {
+          "accuracy": 0.9875087438792846,
+          "precision": 0.7873164763458401,
+          "recall": 0.9491150442477876,
+          "f1": 0.8606776638430673,
+          "roc_auc": 0.997853713337298
+        },
+        "test_at_0_5": {
+          "accuracy": 0.9843009893074848,
+          "precision": 0.7222716752714973,
+          "recall": 0.9972959685349065,
+          "f1": 0.8377903975219412,
+          "roc_auc": 0.997853713337298
+        },
+        "train_seconds": 7.76
+      }
+    },
+    "best": {
+      "model": "hist_gradient_boosting",
+      "threshold": 0.9053927641380316,
+      "test": {
+        "accuracy": 0.9875087438792846,
+        "precision": 0.7873164763458401,
+        "recall": 0.9491150442477876,
+        "f1": 0.8606776638430673,
+        "roc_auc": 0.997853713337298
+      }
+    }
+  },
+  "transfer_unsw_to_cic": {
+    "at_source_threshold": {
+      "accuracy": 0.64294,
+      "precision": 0.025776766277458934,
+      "recall": 0.03150701499758104,
+      "f1": 0.028355284641341027,
+      "roc_auc": 0.47001535047327364
+    },
+    "source_threshold": 0.9053927641380316,
+    "false_positive_rate": 0.23592207418767372,
+    "alert_rate": 0.20212,
+    "average_precision": 0.1416081702914712,
+    "detection_rate_by_label": {
+      "bot": {
+        "flows": 68,
+        "detected": 0,
+        "rate": 0.0
+      },
+      "ddos": {
+        "flows": 6446,
+        "detected": 222,
+        "rate": 0.03443996276760782
+      },
+      "dos goldeneye": {
+        "flows": 519,
+        "detected": 14,
+        "rate": 0.02697495183044316
+      },
+      "dos hulk": {
+        "flows": 8432,
+        "detected": 250,
+        "rate": 0.029648956356736242
+      },
+      "dos slowhttptest": {
+        "flows": 262,
+        "detected": 31,
+        "rate": 0.1183206106870229
+      },
+      "dos slowloris": {
+        "flows": 246,
+        "detected": 1,
+        "rate": 0.0040650406504065045
+      },
+      "ftp-patator": {
+        "flows": 215,
+        "detected": 0,
+        "rate": 0.0
+      },
+      "infiltration": {
+        "flows": 2,
+        "detected": 1,
+        "rate": 0.5
+      },
+      "portscan": {
+        "flows": 81,
+        "detected": 1,
+        "rate": 0.012345679012345678
+      },
+      "ssh-patator": {
+        "flows": 159,
+        "detected": 1,
+        "rate": 0.006289308176100629
+      },
+      "web attack - brute force": {
+        "flows": 72,
+        "detected": 0,
+        "rate": 0.0
+      },
+      "web attack - sql injection": {
+        "flows": 1,
+        "detected": 0,
+        "rate": 0.0
+      },
+      "web attack - xss": {
+        "flows": 33,
+        "detected": 0,
+        "rate": 0.0
+      }
+    },
+    "oracle_threshold_on_target": {
+      "threshold": 0.0073088031084297955,
+      "precision": 0.19009173424866146,
+      "recall": 0.9511369134010643
+    }
+  },
+  "cic_ceiling": {
+    "models": {
+      "random_forest": {
+        "threshold": 0.9932724528908168,
+        "validation": {
+          "precision": 0.9991144284901006,
+          "recall": 0.9551886792452831
+        },
+        "test_at_threshold": {
+          "accuracy": 0.99259,
+          "precision": 0.9987999747363102,
+          "recall": 0.9563376874697629,
+          "f1": 0.9771077265284686,
+          "roc_auc": 0.9997274737652583
+        },
+        "test_at_0_5": {
+          "accuracy": 0.99537,
+          "precision": 0.981025917280182,
+          "recall": 0.991170778906628,
+          "f1": 0.986072255813254,
+          "roc_auc": 0.9997274737652583
+        },
+        "train_seconds": 29.59
+      },
+      "logistic_regression": {
+        "threshold": 0.1063198670744896,
+        "validation": {
+          "precision": 0.4444255848821749,
+          "recall": 0.9500483792936623
+        },
+        "test_at_threshold": {
+          "accuracy": 0.79788,
+          "precision": 0.44774549383067036,
+          "recall": 0.9524068698597,
+          "f1": 0.6091278282730613,
+          "roc_auc": 0.9724251194881143
+        },
+        "test_at_0_5": {
+          "accuracy": 0.93995,
+          "precision": 0.7605006678870034,
+          "recall": 0.9296081277213353,
+          "f1": 0.8365941930392664,
+          "roc_auc": 0.9724251194881143
+        },
+        "train_seconds": 4.92
+      },
+      "hist_gradient_boosting": {
+        "threshold": 0.9778148669743826,
+        "validation": {
+          "precision": 0.9987350578711024,
+          "recall": 0.9549467827769714
+        },
+        "test_at_threshold": {
+          "accuracy": 0.99249,
+          "precision": 0.9984841786142866,
+          "recall": 0.9560353168843735,
+          "f1": 0.9767987889647503,
+          "roc_auc": 0.9998024936522175
+        },
+        "test_at_0_5": {
+          "accuracy": 0.99527,
+          "precision": 0.9810721772985924,
+          "recall": 0.9905055636187712,
+          "f1": 0.9857663025488249,
+          "roc_auc": 0.9998024936522175
+        },
+        "train_seconds": 5.79
+      }
+    },
+    "best": {
+      "model": "random_forest",
+      "threshold": 0.9932724528908168,
+      "test": {
+        "accuracy": 0.99259,
+        "precision": 0.9987999747363102,
+        "recall": 0.9563376874697629,
+        "f1": 0.9771077265284686,
+        "roc_auc": 0.9997274737652583
+      }
+    },
+    "on_cic_test": {
+      "at_source_threshold": {
+        "accuracy": 0.99259,
+        "precision": 0.9987999747363102,
+        "recall": 0.9563376874697629,
+        "f1": 0.9771077265284686,
+        "roc_auc": 0.9997274737652583
+      },
+      "source_threshold": 0.9932724528908168,
+      "false_positive_rate": 0.00022764305568868015,
+      "alert_rate": 0.15833,
+      "average_precision": 0.9991262228891915,
+      "detection_rate_by_label": {
+        "bot": {
+          "flows": 68,
+          "detected": 27,
+          "rate": 0.39705882352941174
+        },
+        "ddos": {
+          "flows": 6446,
+          "detected": 6375,
+          "rate": 0.9889854173130623
+        },
+        "dos goldeneye": {
+          "flows": 519,
+          "detected": 409,
+          "rate": 0.7880539499036608
+        },
+        "dos hulk": {
+          "flows": 8432,
+          "detected": 8266,
+          "rate": 0.9803130929791272
+        },
+        "dos slowhttptest": {
+          "flows": 262,
+          "detected": 130,
+          "rate": 0.4961832061068702
+        },
+        "dos slowloris": {
+          "flows": 246,
+          "detected": 229,
+          "rate": 0.9308943089430894
+        },
+        "ftp-patator": {
+          "flows": 215,
+          "detected": 200,
+          "rate": 0.9302325581395349
+        },
+        "infiltration": {
+          "flows": 2,
+          "detected": 0,
+          "rate": 0.0
+        },
+        "portscan": {
+          "flows": 81,
+          "detected": 39,
+          "rate": 0.48148148148148145
+        },
+        "ssh-patator": {
+          "flows": 159,
+          "detected": 133,
+          "rate": 0.8364779874213837
+        },
+        "web attack - brute force": {
+          "flows": 72,
+          "detected": 6,
+          "rate": 0.08333333333333333
+        },
+        "web attack - sql injection": {
+          "flows": 1,
+          "detected": 0,
+          "rate": 0.0
+        },
+        "web attack - xss": {
+          "flows": 33,
+          "detected": 0,
+          "rate": 0.0
+        }
+      },
+      "oracle_threshold_on_target": {
+        "threshold": 0.9940080886662295,
+        "precision": 0.9989829000063569,
+        "recall": 0.9503507498790518
+      }
+    }
+  }
+}

@@ -30,6 +30,7 @@ commit history; their dates are when the decision was implemented.
 | [0018](0018-separate-attack-family-model.md) | Separate 10-class attack-family model | Accepted | 2026-10-12 |
 | [0019](0019-persisted-quality-gate.md) | Data-quality checks as a persisted pipeline gate | Accepted | 2026-10-13 |
 | [0020](0020-dashboard-as-code.md) | AI/BI dashboard kept as code, model quality from the test split only | Accepted | 2026-10-13 |
+| [0021](0021-cross-dataset-evaluation-on-portable-features.md) | Cross-dataset evaluation on a portable feature set | Accepted | 2026-10-14 |
 
 ## Template
 

@@ -100,10 +100,10 @@ cyber-lakehouse/
 │   └── sql/                   # Ad-hoc Spark SQL analytics
 │
 ├── databricks/                # Databricks notebooks, AI/BI dashboard (dashboards/), setup guide
-├── scripts/                   # fetch_data.sh, run_job.sh
+├── scripts/                   # fetch_data.sh, fetch_cic.sh, run_job.sh
 ├── data/                      # bronze/silver/gold Delta tables (gitignored)
 ├── models/                    # Trained model artifacts (gitignored)
-├── reports/                   # metrics.json (committed)
+├── reports/                   # metrics.json, cross_dataset.json (committed)
 ├── tests/                     # Unit tests (pure-python + local Spark)
 ├── docker/                    # spark.Dockerfile, docker-compose.yml
 └── README.md
@@ -197,6 +197,28 @@ Per family (test, saved model). Accuracy is dominated by `normal`, so the per-fa
 Where it struggles: 1,245 benign flows are labeled `fuzzers` (hence fuzzers' low precision), about half of `dos` flows are labeled `exploits` (a known overlap in UNSW-NB15), and the rarest families have too few examples to learn (7 `worms` flows in the test set).
 
 Full details, including every model's validation metrics and the confusion matrix, in [`reports/metrics.json`](reports/metrics.json).
+
+### Cross-dataset test: does it generalize? (CIC-IDS2017)
+
+Scores on UNSW-NB15 say nothing about traffic from another network. To test that, a detector trained on UNSW is scored on [CIC-IDS2017](https://www.unb.ca/cic/datasets/ids-2017.html), which comes from a different lab, a different set of attacks, and a different flow tool (CICFlowMeter instead of Argus/Bro).
+
+Only 7 measurements mean the same thing in both datasets: duration, bytes and packets in each direction, and the mean inter-packet time in each direction. CIC values are converted to UNSW units (µs → s and ms; CIC payload bytes + header bytes, because UNSW counts include headers). The detector is retrained on UNSW using only those 7 plus 12 features derived from them with the gold-layer formulas, 19 in total. TTLs, protocol/service/state, the `ct_*` counters, and TCP window sizes have no matching CIC field or use different units, so they are left out. The protocol is unchanged: 60/20/20 split, ≥95%-recall threshold. Each dataset is deduplicated and sampled down to 500k flows.
+
+| Model | Tested on | Precision | Recall | F1 | ROC-AUC |
+|---|---|---|---|---|---|
+| UNSW, all 54 features (reference) | UNSW | 0.8394 | 0.9453 | 0.8892 | 0.9988 |
+| UNSW, 19 portable features | UNSW | 0.7873 | 0.9491 | 0.8607 | 0.9979 |
+| **UNSW portable → CIC** (UNSW threshold) | CIC | **0.0258** | **0.0315** | **0.0284** | **0.4700** |
+| CIC-trained, same features (ceiling) | CIC | 0.9988 | 0.9563 | 0.9771 | 0.9997 |
+
+**The detector does not transfer.** On CIC it catches 3% of attacks, flags 24% of benign flows, and ranks flows slightly worse than random (ROC-AUC 0.47). It is not a threshold problem either: no threshold catches 95% of CIC attacks above 19% precision, against a 16.5% attack rate in the CIC test split. The features themselves are not the cause. Dropping to 19 portable features costs only 0.03 F1 on UNSW, and a model trained on CIC with the same 19 features reaches 0.977 F1. What the UNSW model learned is specific to UNSW:
+
+- **CIC benign traffic looks like UNSW attacks.** The median CIC benign flow is 2 packets and 140 bytes (mostly short DNS-style exchanges). The median UNSW benign flow is 16–18 packets and about 2 KB, while UNSW's `generic` attacks have a median of 2 packets and 114 bytes. Short and small reads as "attack" to the UNSW model.
+- **CIC attacks look like nothing UNSW labels as an attack.** CIC's DoS flows are long, slow connections (median 60–100 s for Hulk, Slowloris, SlowHTTPTest), and most UNSW attacks finish in under a second.
+
+Per CIC attack type, the UNSW detector catches 0–12% of every family with at least 30 test flows (DDoS 3.4%, DoS Hulk 3.0%). The CIC-trained model catches 98–99% of the two largest (DDoS, DoS Hulk). In practice, a detector like this has to be retrained or fine-tuned on traffic from the network it protects, so the 0.89 F1 above is a within-dataset number. This is consistent with published cross-dataset studies of these benchmarks.
+
+Reproduce with `bash scripts/fetch_cic.sh` (~850 MB from a public Kaggle mirror, no account needed) and `./scripts/run_job.sh src/jobs/evaluate_cross_dataset.py`. Full results are in [`reports/cross_dataset.json`](reports/cross_dataset.json). Design reasoning: [ADR-0021](docs/adr/0021-cross-dataset-evaluation-on-portable-features.md).
 
 ---
 
