@@ -81,9 +81,9 @@ train Workflow's `full_refresh` recreates `gold.predictions` with the new
 ## Dashboard
 
 `dashboards/cyber_lakehouse.lvdash.json` is a three-page AI/BI dashboard:
-- **Threat overview:** alerts over time and by family, most-targeted hosts, top alerts
+- **Threat overview:** alerts per hour by family for each capture session, alerts by family, most-targeted hosts, top alerts
 - **Model quality:** test-split metrics only
-- **Pipeline health:** data-quality status and history, rows per micro-batch, rows per layer
+- **Pipeline health:** data-quality status, recent quality runs, raw vs. unique rows per micro-batch, rows per layer
 
 It reads the tables above. The model page needs `gold.model_metrics` and `gold.family_model_metrics`, so run the train Workflow first. The health page needs `gold.quality_results`, so run the pipeline Workflow once with the `06_quality_checks` task.
 
