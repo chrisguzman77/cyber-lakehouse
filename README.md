@@ -20,7 +20,7 @@ This project implements a Bronze → Silver → Gold lakehouse architecture to i
 
 The system is fully containerized (Docker) and also runs on Databricks — see [`databricks/README.md`](databricks/README.md).
 
-**Documentation:** [architecture](docs/architecture.md) · [data model](docs/data-model.md) · [operations runbook](docs/operations.md) · [design decisions (ADRs)](docs/adr/README.md)
+**Documentation:** [architecture](docs/architecture.md) · [data model](docs/data-model.md) · [operations runbook](docs/operations.md) · [design decisions (ADRs)](docs/adr/README.md) · [changelog](CHANGELOG.md)
 
 ---
 

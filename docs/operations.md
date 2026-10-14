@@ -1,5 +1,7 @@
 # Operations Runbook
 
+*Last updated: 2026-10-14*
+
 How to set up, run, verify, reset, and troubleshoot the pipeline. For the
 design behind these steps see [`architecture.md`](architecture.md).
 
