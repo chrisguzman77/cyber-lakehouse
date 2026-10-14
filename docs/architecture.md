@@ -229,6 +229,19 @@ exploits (F1 0.82–0.94); weak on dos, analysis, backdoor, and worms. Per-class
 results are in the README and `reports/metrics.json`
 ([ADR-0018](adr/0018-separate-attack-family-model.md)).
 
+*Cross-dataset* (CIC-IDS2017, 19 portable features, 500k flows per dataset,
+same protocol; [ADR-0021](adr/0021-cross-dataset-evaluation-on-portable-features.md)):
+
+| Model | Tested on | Precision | Recall | F1 | ROC-AUC |
+|---|---|---|---|---|---|
+| UNSW, portable features | UNSW | 0.7873 | 0.9491 | 0.8607 | 0.9979 |
+| UNSW portable → CIC (UNSW threshold) | CIC | 0.0258 | 0.0315 | 0.0284 | 0.4700 |
+| CIC-trained ceiling | CIC | 0.9988 | 0.9563 | 0.9771 | 0.9997 |
+
+The features suffice (ceiling), but what the UNSW model learned does not
+carry over: CIC's short benign flows resemble UNSW's `generic` attacks, and
+CIC's long, slow DoS flows resemble no UNSW attack.
+
 **Local run times** (Docker, 2 GB driver, full dataset, 2026-10-12):
 
 | Step | First run (all data) | No-op rerun |
@@ -243,7 +256,9 @@ results are in the README and `reports/metrics.json`
 
 - **Dataset realism.** UNSW-NB15 attacks are synthetic and some features
   (e.g. TTLs) are known to be unusually predictive on this dataset; scores are
-  likely optimistic for real traffic. Cross-dataset evaluation is future work.
+  likely optimistic for real traffic. The cross-dataset test confirms it: the
+  detector does not transfer to CIC-IDS2017 (ROC-AUC 0.47; see §8), so a new
+  network needs retraining on its own traffic.
 - **Precision 0.84 at 94.5% recall**: about 1 in 6 alerts is still a false
   positive, and ~5.5% of attacks are missed. The 95% recall floor is a
   judgment call, not derived from real costs.
@@ -268,6 +283,7 @@ results are in the README and `reports/metrics.json`
 
 1. ~~Streaming ingestion + incremental MERGE~~ (done, 2026-10-12)
 2. ~~Evaluation: train/validation/test split, threshold tuning, attack-family
-   model~~ (done, 2026-10-12); cross-dataset test on CIC-IDS2017 (next)
+   model~~ (done, 2026-10-12); ~~cross-dataset test on CIC-IDS2017~~ (done,
+   2026-10-14, [ADR-0021](adr/0021-cross-dataset-evaluation-on-portable-features.md))
 3. ~~Dashboard (Databricks AI/BI) over predictions, model metrics, and
    persisted quality-check results~~ (built 2026-10-13, published 2026-10-14, [ADR-0020](adr/0020-dashboard-as-code.md))
