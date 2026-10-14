@@ -1,5 +1,7 @@
 # Running the Lakehouse on Databricks (Free Edition)
 
+*Last updated: 2026-10-13*
+
 The `databricks/` notebooks mirror the local `src/jobs/` pipeline on Databricks
 serverless compute with Unity Catalog managed Delta tables. Cleaning, feature
 engineering, the incremental MERGE helpers, and the replay script are imported

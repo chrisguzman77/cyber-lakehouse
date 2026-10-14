@@ -1,5 +1,7 @@
 # Architecture
 
+*Last updated: 2026-10-14*
+
 This document describes what Cyber Lakehouse is, how it is built, and why it is
 built that way. Individual design decisions are recorded as ADRs in
 [`adr/`](adr/README.md); the table and column reference is in

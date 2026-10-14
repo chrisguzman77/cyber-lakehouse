@@ -1,5 +1,7 @@
 # Data Model
 
+*Last updated: 2026-10-13*
+
 Reference for every table the pipeline writes. Local tables are path-based
 Delta tables under `data/`; on Databricks they are Unity Catalog managed tables
 in the `cyber_lakehouse` catalog.
