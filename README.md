@@ -3,6 +3,10 @@
 A lakehouse-style data engineering + ML pipeline for detecting malicious network traffic using Apache Spark, Delta Lake, and Python.
 Processes the **full UNSW-NB15 dataset (2,540,047 network flow records)** through a Bronze → Silver → Gold architecture, trains and benchmarks attack-detection and attack-family classifiers with an honest train/validation/test protocol, and scores every flow at scale. Ingestion is **incremental and idempotent**: Structured Streaming / Auto Loader picks up new files only, and every downstream layer is an insert-only Delta MERGE fed by Change Data Feed, so reruns and re-delivered files never create duplicates. Runs locally in Docker and deploys to Databricks (serverless + Unity Catalog).
 
+![Databricks AI/BI dashboard: 2.01M flows analyzed, 94.9K alerts, alerts per hour by attack family for both capture sessions](docs/img/threat-overview-1.png)
+
+*The project's Databricks dashboard, built from the pipeline's own tables; [more below](#databricks-deployment).*
+
 ---
 
 ## Project Overview
@@ -226,6 +230,16 @@ The same pipeline runs on Databricks: serverless compute, Auto Loader over a lan
 - **Threat overview:** alerts per hour by attack family (one chart per capture session), alerts by family, most-targeted hosts, highest-confidence alerts
 - **Model quality:** the selected threshold, precision and recall, plus every candidate model. All numbers are from the test split only.
 - **Pipeline health:** latest data-quality results, recent quality runs, raw rows vs. new unique flows per micro-batch (and the share removed as duplicates), rows per layer
+
+![Threat overview: alerts by attack family, most-targeted hosts, and the highest-confidence alerts with their source/destination IPs and ports](docs/img/threat-overview-2.png)
+
+![Model quality: tuned alert threshold 0.88, test precision 82.4%, recall 95.3%, and every candidate model's validation and test metrics](docs/img/model-quality.png)
+
+![Pipeline health: 11 of 11 data-quality checks passing, with the latest run's results per check](docs/img/pipeline-health-1.png)
+
+![Pipeline health: raw rows vs. new unique flows per micro-batch, 2.54M raw rows deduplicated to 2.01M unique flows (20.7% removed), rows per layer](docs/img/pipeline-health-2.png)
+
+The micro-batch table reconciles exactly: its duplicates column sums to 526,427, which is 2,540,047 raw rows minus 2,013,620 unique flows.
 
 **Incremental pipeline Workflow** — each run of `cyber-lakehouse-pipeline` delivers the next 3 chunks (~750k rows) and processes only those through every layer, in 2–3 minutes on serverless. The last run below had nothing new to deliver and left every table's row count unchanged:
 
