@@ -1,6 +1,6 @@
 # ADR-0020: AI/BI dashboard kept as code, model quality from the test split only
 
-- **Status:** Accepted (import into Databricks pending)
+- **Status:** Accepted (imported and published on Databricks, 2026-10-14)
 - **Date:** 2026-10-13
 
 ## Context

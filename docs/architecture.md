@@ -270,4 +270,4 @@ results are in the README and `reports/metrics.json`
 2. ~~Evaluation: train/validation/test split, threshold tuning, attack-family
    model~~ (done, 2026-10-12); cross-dataset test on CIC-IDS2017 (next)
 3. ~~Dashboard (Databricks AI/BI) over predictions, model metrics, and
-   persisted quality-check results~~ (built 2026-10-13, [ADR-0020](adr/0020-dashboard-as-code.md))
+   persisted quality-check results~~ (built 2026-10-13, published 2026-10-14, [ADR-0020](adr/0020-dashboard-as-code.md))
